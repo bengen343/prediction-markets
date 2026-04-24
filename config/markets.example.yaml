@@ -1,0 +1,16 @@
+# Example market-selection config for the collectors.
+#
+# The real file lives in GCS at gs://<project>-config/markets.yaml.
+# Collectors re-read it every 60 seconds, so edits take effect without restart.
+#
+# Schema: for each source, specify tickers, categories, or both.
+
+kalshi:
+  tickers:
+    - KXPRES-2028-DEM
+  categories:
+    - politics
+
+polymarket:
+  tickers: []
+  categories: []

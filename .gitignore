@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets - never commit these
+*.pem
+*.key
+kalshi_private*
+kalshi*private*
+secrets/
+.env
+.env.*
+
+# Local config overrides
+markets.yaml
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

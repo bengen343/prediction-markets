@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:docs.kalshi.com)",
+      "WebFetch(domain:github.com)"
+    ]
+  }
+}
