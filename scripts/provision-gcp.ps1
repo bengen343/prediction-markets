@@ -225,10 +225,19 @@ function Ensure-Secret {
       gcloud secrets versions add $Name --data-file $ValueFromFile --quiet | Out-Null
     } "add version for $Name"
   } elseif ($ValueInline) {
-    # Pipe the value via stdin so it never touches a temp file on disk.
+    # Write to a temp file with exact bytes - PS piping to native commands
+    # appends a trailing newline (CRLF on Windows), which would land in the
+    # secret and break consumers that don't strip whitespace (e.g., bash $()).
     Write-Host "  Adding version to $Name..."
-    $ValueInline | & gcloud secrets versions add $Name --data-file=- --quiet | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Failed adding version for $Name" }
+    $tmp = [System.IO.Path]::GetTempFileName()
+    try {
+      [System.IO.File]::WriteAllBytes($tmp, [System.Text.Encoding]::UTF8.GetBytes($ValueInline))
+      Invoke-Checked {
+        gcloud secrets versions add $Name --data-file=$tmp --quiet | Out-Null
+      } "add version for $Name"
+    } finally {
+      Remove-Item -Force $tmp -ErrorAction SilentlyContinue
+    }
   } else {
     Write-Host "  $Name created (no value yet - add one with 'gcloud secrets versions add')."
   }

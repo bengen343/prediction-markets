@@ -1,0 +1,19 @@
+[Unit]
+Description=Discord notifier for prediction-market alerts
+
+[Service]
+Type=oneshot
+User=collector
+Group=collector
+WorkingDirectory=/opt/collector
+ExecStart=/opt/collector/venv/bin/python -m prediction_markets.notifier
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=notifier
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+Environment=GCE_METADATA_MTLS_MODE=none

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run notifier every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=notifier.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

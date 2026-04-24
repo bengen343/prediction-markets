@@ -50,16 +50,28 @@ fi
 echo "Installing deps..."
 sudo -u "${SERVICE_USER}" bash -c "cd ${INSTALL_DIR} && VIRTUAL_ENV=${VENV_DIR} ${UV_BIN} pip install -e ."
 
-# 5. systemd unit (always overwrite so unit changes land)
-echo "Installing systemd unit..."
-cp "${STAGING}/systemd/kalshi-collector.service" /etc/systemd/system/kalshi-collector.service
+# 5. systemd units (always overwrite so changes land)
+echo "Installing systemd units..."
+cp "${STAGING}/systemd/"*.service /etc/systemd/system/
+if ls "${STAGING}/systemd/"*.timer >/dev/null 2>&1; then
+  cp "${STAGING}/systemd/"*.timer /etc/systemd/system/
+fi
 systemctl daemon-reload
 systemctl enable kalshi-collector.service >/dev/null
+if [ -f /etc/systemd/system/notifier.timer ]; then
+  systemctl enable notifier.timer >/dev/null
+fi
 
-# 6. Restart service + report status
-echo "Restarting service..."
+# 6. Restart units + report status
+echo "Restarting units..."
 systemctl restart kalshi-collector.service
+if [ -f /etc/systemd/system/notifier.timer ]; then
+  systemctl restart notifier.timer
+fi
 sleep 2
 systemctl --no-pager status kalshi-collector.service || true
+if [ -f /etc/systemd/system/notifier.timer ]; then
+  systemctl --no-pager status notifier.timer || true
+fi
 
 echo "=== install-on-vm.sh: done ==="
