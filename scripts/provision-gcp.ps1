@@ -53,10 +53,19 @@ if (-not $authAccount -or $authAccount -eq "(unset)") {
   throw "Not authenticated. Run 'gcloud auth login' first."
 }
 
-# Generate project ID if not provided. Project IDs must be globally unique.
+# Resolve project ID: explicit param wins; else use current gcloud-active
+# project; else generate a new one. Defaulting to the active project prevents
+# accidentally spinning up a duplicate setup when re-running the script.
 if (-not $ProjectId) {
-  $suffix = [Guid]::NewGuid().ToString("N").Substring(0, 6).ToLower()
-  $ProjectId = "prediction-markets-$suffix"
+  $currentProject = & gcloud config get-value project 2>$null
+  if ($currentProject -and $currentProject -ne "(unset)") {
+    $ProjectId = $currentProject
+    Write-Host "Using gcloud-active project: $ProjectId"
+  } else {
+    $suffix = [Guid]::NewGuid().ToString("N").Substring(0, 6).ToLower()
+    $ProjectId = "prediction-markets-$suffix"
+    Write-Host "No gcloud-active project; generated new ID: $ProjectId"
+  }
 }
 
 $ConfigBucket = "$ProjectId-config"
@@ -139,7 +148,7 @@ $roles = @(
   "roles/bigquery.dataEditor",
   "roles/bigquery.jobUser",
   "roles/secretmanager.secretAccessor",
-  "roles/storage.objectViewer",
+  "roles/storage.objectUser",
   "roles/logging.logWriter",
   "roles/monitoring.metricWriter"
 )
@@ -193,7 +202,7 @@ if (-not $dsExists) {
 }
 
 $sqlDir = Join-Path $PSScriptRoot "..\sql"
-foreach ($ddl in @("trades_table.sql", "alerts_table.sql")) {
+foreach ($ddl in @("trades_table.sql", "alerts_table.sql", "markets_table.sql", "markets_staging_table.sql")) {
   $path = Join-Path $sqlDir $ddl
   Write-Host "Applying $ddl..."
   # Flatten SQL onto one line: Windows argv handling of multi-line strings

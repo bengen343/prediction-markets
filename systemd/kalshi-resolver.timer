@@ -1,0 +1,10 @@
+[Unit]
+Description=Run kalshi-resolver daily at 1am Mountain time
+
+[Timer]
+OnCalendar=*-*-* 01:00:00 America/Denver
+Unit=kalshi-resolver.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

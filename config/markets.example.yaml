@@ -1,16 +1,21 @@
-# Example market-selection config for the collectors.
+# Human-edited intent for which markets to track.
+# Lives in GCS at gs://<project>-config/markets.yaml.
+# Read by the kalshi-resolver (daily, 1am Mountain) which expands categories
+# into the actual ticker list at gs://<project>-config/subscriptions.yaml.
+# The collector reads subscriptions.yaml, not this file directly.
 #
-# The real file lives in GCS at gs://<project>-config/markets.yaml.
-# Collectors re-read it every 60 seconds, so edits take effect without restart.
-#
-# Schema: for each source, specify tickers, categories, or both.
+# Schema:
+#   <source>:
+#     categories: list of Kalshi category names; resolver discovers all open
+#                 markets in any series matching that category.
+#     tickers:    explicit ticker overrides; always followed regardless of
+#                 category, even if not part of any tracked series.
 
 kalshi:
-  tickers:
-    - KXPRES-2028-DEM
   categories:
-    - politics
+    - Politics
+  tickers: []
 
 polymarket:
-  tickers: []
   categories: []
+  tickers: []

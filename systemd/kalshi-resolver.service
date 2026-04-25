@@ -1,0 +1,19 @@
+[Unit]
+Description=Kalshi market resolver - discovers tracked markets and updates the markets table
+
+[Service]
+Type=oneshot
+User=collector
+Group=collector
+WorkingDirectory=/opt/collector
+ExecStart=/opt/collector/venv/bin/python -m prediction_markets.kalshi.resolver
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kalshi-resolver
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+Environment=GCE_METADATA_MTLS_MODE=none

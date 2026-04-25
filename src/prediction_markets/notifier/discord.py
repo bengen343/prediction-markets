@@ -7,7 +7,13 @@ _USER_AGENT = "prediction-markets-notifier/0.1"
 
 
 def post_message(webhook_url: str, content: str, timeout: float = 10.0) -> None:
-    payload = json.dumps({"content": content}).encode("utf-8")
+    # allowed_mentions parse:["users"] lets <@USER_ID> in content trigger a real
+    # ping. Without this, Discord renders the mention but suppresses the
+    # notification (default webhook behavior to prevent spam).
+    payload = json.dumps({
+        "content": content,
+        "allowed_mentions": {"parse": ["users"]},
+    }).encode("utf-8")
     req = urllib.request.Request(
         webhook_url,
         data=payload,

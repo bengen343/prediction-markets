@@ -23,7 +23,9 @@ async def main() -> None:
     private_key = load_private_key(get_secret_bytes("kalshi-private-key"))
     access_key_id = get_secret("kalshi-api-key-id")
 
-    watcher = ConfigWatcher(bucket=bucket)
+    # subscriptions.yaml is auto-written by kalshi-resolver. markets.yaml is the
+    # human-edited intent (categories + manual overrides) that the resolver reads.
+    watcher = ConfigWatcher(bucket=bucket, path="subscriptions.yaml")
     writer = BqWriter(project_id=project_id, dataset=dataset)
     await watcher.start()
     await writer.start()
