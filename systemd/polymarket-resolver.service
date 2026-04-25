@@ -1,0 +1,19 @@
+[Unit]
+Description=Polymarket market resolver - discovers tracked markets and updates the polymarket_markets table
+
+[Service]
+Type=oneshot
+User=collector
+Group=collector
+WorkingDirectory=/opt/collector
+ExecStart=/opt/collector/venv/bin/python -m prediction_markets.polymarket.resolver
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polymarket-resolver
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+Environment=GCE_METADATA_MTLS_MODE=none

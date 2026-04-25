@@ -1,15 +1,22 @@
 # Human-edited intent for which markets to track.
 # Lives in GCS at gs://<project>-config/markets.yaml.
-# Read by the kalshi-resolver (daily, 1am Mountain) which expands categories
-# into the actual ticker list at gs://<project>-config/subscriptions.yaml.
-# The collector reads subscriptions.yaml, not this file directly.
+# Read by each resolver (kalshi at 1am Mountain, polymarket at 3am Mountain)
+# which expands these filters into the actual subscription list at
+# gs://<project>-config/subscriptions.yaml. Each collector reads
+# subscriptions.yaml, not this file directly.
 #
 # Schema:
-#   <source>:
+#   kalshi:
 #     categories: list of Kalshi category names; resolver discovers all open
 #                 markets in any series matching that category.
 #     tickers:    explicit ticker overrides; always followed regardless of
 #                 category, even if not part of any tracked series.
+#   polymarket:
+#     tag_slug:   list of tag slugs (Polymarket has no real categories - the
+#                 'category' field is dead/legacy and tags are the only topic
+#                 signal). Resolver fetches /events/keyset?tag_slug=... and
+#                 stores the markets nested under each event.
+#     tickers:    explicit market_id overrides (not yet wired up).
 
 # TODO: Add functionality to exclude certain tickers or categories.
 kalshi:
@@ -18,5 +25,6 @@ kalshi:
   tickers: []
 
 polymarket:
-  categories: []
+  tag_slug:
+    - politics
   tickers: []

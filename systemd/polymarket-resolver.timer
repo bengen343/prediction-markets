@@ -1,0 +1,10 @@
+[Unit]
+Description=Run polymarket-resolver daily at 3am Mountain time (offset from kalshi-resolver at 1am)
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 America/Denver
+Unit=polymarket-resolver.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

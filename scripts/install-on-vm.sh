@@ -58,20 +58,22 @@ if ls "${STAGING}/systemd/"*.timer >/dev/null 2>&1; then
 fi
 systemctl daemon-reload
 systemctl enable kalshi-collector.service >/dev/null
-if [ -f /etc/systemd/system/notifier.timer ]; then
-  systemctl enable notifier.timer >/dev/null
-fi
+# enable --now arms the timer immediately and is idempotent on re-runs.
+for timer in notifier.timer kalshi-resolver.timer polymarket-resolver.timer; do
+  if [ -f "/etc/systemd/system/${timer}" ]; then
+    systemctl enable --now "${timer}" >/dev/null
+  fi
+done
 
 # 6. Restart units + report status
 echo "Restarting units..."
 systemctl restart kalshi-collector.service
-if [ -f /etc/systemd/system/notifier.timer ]; then
-  systemctl restart notifier.timer
-fi
 sleep 2
 systemctl --no-pager status kalshi-collector.service || true
-if [ -f /etc/systemd/system/notifier.timer ]; then
-  systemctl --no-pager status notifier.timer || true
-fi
+for timer in notifier.timer kalshi-resolver.timer polymarket-resolver.timer; do
+  if [ -f "/etc/systemd/system/${timer}" ]; then
+    systemctl --no-pager status "${timer}" || true
+  fi
+done
 
 echo "=== install-on-vm.sh: done ==="

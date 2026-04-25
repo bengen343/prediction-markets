@@ -21,7 +21,7 @@ class TradeRow:
     trade_id: str
     ts: str
     price: float | None = None
-    size: int | None = None
+    size: float | None = None
     side: str | None = None
     raw: dict[str, Any] | None = None
     # Populated at row-creation time because BQ load jobs (unlike DML INSERT)

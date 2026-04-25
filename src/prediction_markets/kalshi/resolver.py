@@ -8,6 +8,7 @@ from google.cloud import bigquery, storage
 
 from ..shared.log import configure_logging, get_logger
 from ..shared.secrets import get_project_id, get_secret, get_secret_bytes
+from ..shared.subscriptions import write_subscriptions_for_source
 from .auth import load_private_key
 from .rest import get_paginated
 
@@ -220,11 +221,10 @@ def _load_yaml_from_gcs(bucket, path: str) -> dict:
 
 
 def _write_subscriptions(bucket, tickers: list[str]) -> None:
-    payload = {"kalshi": {"tickers": sorted(set(tickers)), "categories": []}}
-    bucket.blob("subscriptions.yaml").upload_from_string(
-        yaml.safe_dump(payload, default_flow_style=False),
-        content_type="text/x-yaml",
-    )
+    write_subscriptions_for_source(bucket, "kalshi", {
+        "tickers": sorted(set(tickers)),
+        "categories": [],
+    })
 
 
 def main() -> None:

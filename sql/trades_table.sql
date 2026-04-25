@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS prediction_markets.trades (
   trade_id     STRING    NOT NULL,
   ts           TIMESTAMP NOT NULL,
   price        FLOAT64,
-  size         INT64,
+  size         FLOAT64,
   side         STRING,
   raw          JSON,
   ingested_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP() NOT NULL

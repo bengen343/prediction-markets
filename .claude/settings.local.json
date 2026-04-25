@@ -3,7 +3,19 @@
     "allow": [
       "WebSearch",
       "WebFetch(domain:docs.kalshi.com)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.polymarket.com)",
+      "Bash(curl -s 'https://gamma-api.polymarket.com/events?category=Politics&closed=false&limit=3')",
+      "Bash(python -m json.tool)",
+      "Bash(curl -s 'https://gamma-api.polymarket.com/events?category=Politics&closed=false&limit=500')",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('returned:', len\\(d\\)\\)\")",
+      "Bash(curl -s 'https://gamma-api.polymarket.com/events?tag_slug=politics&closed=false&limit=500')",
+      "Bash(curl -s 'https://gamma-api.polymarket.com/events?tag_slug=politics&closed=false&limit=1')",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(sorted\\(d[0].keys\\(\\)\\)\\)\")",
+      "Bash(curl -s 'https://gamma-api.polymarket.com/events?tag_slug=politics&closed=false&limit=3')",
+      "Bash(python -c 'import json,sys; d=json.load\\(sys.stdin\\) *)",
+      "Bash(curl -s 'https://gamma-api.polymarket.com/events?tag_slug=politics&closed=false&limit=30&order=volume24hr&ascending=false')",
+      "Bash(python -c ' *)"
     ]
   }
 }

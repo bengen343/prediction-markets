@@ -204,7 +204,15 @@ if (-not $dsExists) {
 }
 
 $sqlDir = Join-Path $PSScriptRoot "..\sql"
-foreach ($ddl in @("trades_table.sql", "alerts_table.sql", "markets_table.sql", "markets_staging_table.sql")) {
+$ddlFiles = @(
+  "trades_table.sql",
+  "alerts_table.sql",
+  "markets_table.sql",
+  "markets_staging_table.sql",
+  "polymarket_markets_table.sql",
+  "polymarket_markets_staging_table.sql"
+)
+foreach ($ddl in $ddlFiles) {
   $path = Join-Path $sqlDir $ddl
   Write-Host "Applying $ddl..."
   # Flatten SQL onto one line: Windows argv handling of multi-line strings
