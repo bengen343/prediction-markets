@@ -11,6 +11,7 @@
 #     tickers:    explicit ticker overrides; always followed regardless of
 #                 category, even if not part of any tracked series.
 
+# TODO: Add functionality to exclude certain tickers or categories.
 kalshi:
   categories:
     - Politics

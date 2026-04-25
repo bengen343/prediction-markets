@@ -17,6 +17,8 @@
     -KalshiApiKeyId "abcd-1234" `
     -DiscordWebhookUrl "https://discord.com/api/webhooks/..."
 #>
+# TODO: Convert the GCP infrastructure setup to Terraform.
+
 
 param(
   [Parameter(Mandatory = $true)]
