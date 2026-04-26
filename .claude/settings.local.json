@@ -15,7 +15,19 @@
       "Bash(curl -s 'https://gamma-api.polymarket.com/events?tag_slug=politics&closed=false&limit=3')",
       "Bash(python -c 'import json,sys; d=json.load\\(sys.stdin\\) *)",
       "Bash(curl -s 'https://gamma-api.polymarket.com/events?tag_slug=politics&closed=false&limit=30&order=volume24hr&ascending=false')",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(gcloud config *)",
+      "Bash(gcloud builds *)",
+      "Bash(bq ls *)",
+      "PowerShell(bq ls prediction-markets-51920:prediction_markets 2>&1)",
+      "Bash(gcloud projects *)",
+      "Bash(gcloud iam *)",
+      "Bash(bq query *)",
+      "PowerShell(bq query --use_legacy_sql=false --format=json \"SELECT debate_id, outcome, transcript_gcs_uri, total_cost_usd FROM prediction_markets.debates ORDER BY started_at DESC LIMIT 1\")",
+      "PowerShell(gcloud storage cat gs://prediction-markets-51920-config/debates/bf17ec5c53ec47078b8bffeffd81ae0b/transcript.jsonl)",
+      "WebFetch(domain:docs.x.ai)",
+      "PowerShell(bq show --schema --format=prettyjson prediction-markets-51920:prediction_markets.alerts 2>&1)",
+      "Bash(gcloud compute *)"
     ]
   }
 }

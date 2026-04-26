@@ -24,6 +24,8 @@ create temp function format_volume(v float64) as (
 
 insert into prediction_markets.alerts (
     alert_id,
+    series_ticker,
+    series_title,
     source,
     title,
     market_id,
@@ -106,9 +108,12 @@ alerts as (
     select
         -- alert information
         candidates.alert_id,
+        -- series information
+        coalesce(kalshi_markets.series_ticker, polymarket_markets.event_ticker) as series_ticker,
+        coalesce(kalshi_series.title, polymarket_markets.event_title) as series_title,
         -- trade information
         candidates.source,
-        coalesce(kalshi_markets.title, initcap(replace(regexp_replace(polymarket_markets.slug, r'-[0-9]+$', ''), '-', ' ')) || '?') as title,
+        coalesce(kalshi_markets.title, initcap(initcap(replace(polymarket_markets.slug, '-', ' ')) || '?')) as title,
         candidates.market_id,
         candidates.trade_id,
         candidates.trade_ts,
@@ -145,6 +150,8 @@ alerts as (
         on candidates.market_id = kalshi_markets.ticker
     left join prediction_markets.polymarket_markets as polymarket_markets
         on candidates.market_id = polymarket_markets.id
+    left join prediction_markets.kalshi_series as kalshi_series
+        on kalshi_markets.series_ticker = kalshi_series.ticker
     where not exists (
         select 1 from prediction_markets.alerts a
         where a.alert_id = candidates.alert_id

@@ -62,10 +62,13 @@ for svc in kalshi-collector.service polymarket-collector.service; do
     systemctl enable "${svc}" >/dev/null
   fi
 done
-# enable --now arms the timer immediately and is idempotent on re-runs.
+# enable arms the timer; restart forces a re-evaluation of the schedule.
+# Without restart, an already-running monotonic timer (OnUnitActiveSec) can get
+# stuck in `active (elapsed)` after daemon-reload and stop firing entirely.
 for timer in notifier.timer kalshi-resolver.timer polymarket-resolver.timer; do
   if [ -f "/etc/systemd/system/${timer}" ]; then
-    systemctl enable --now "${timer}" >/dev/null
+    systemctl enable "${timer}" >/dev/null
+    systemctl restart "${timer}"
   fi
 done
 

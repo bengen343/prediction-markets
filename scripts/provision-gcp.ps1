@@ -210,7 +210,8 @@ $ddlFiles = @(
   "markets_table.sql",
   "markets_staging_table.sql",
   "polymarket_markets_table.sql",
-  "polymarket_markets_staging_table.sql"
+  "polymarket_markets_staging_table.sql",
+  "kalshi_series_table.sql"
 )
 foreach ($ddl in $ddlFiles) {
   $path = Join-Path $sqlDir $ddl

@@ -8,6 +8,8 @@
 -- size is FLOAT64 to match trades.size (Polymarket has fractional shares).
 CREATE TABLE IF NOT EXISTS prediction_markets.alerts (
   alert_id         STRING    NOT NULL,
+  series_ticker    STRING,
+  series_title     STRING,
   source           STRING    NOT NULL,
   title            STRING,
   market_id        STRING    NOT NULL,

@@ -35,9 +35,15 @@ sudo -u collector env GCE_METADATA_MTLS_MODE=none JSON_LOGS=0 \
   /opt/collector/venv/bin/python -u -m prediction_markets.polymarket.resolver
 ```
 
-Cap the work for a smoke test:
+Cap the work for a smoke test. Different knobs by source: Polymarket is a flat
+list of markets, so `MARKETS_LIMIT` caps total markets; Kalshi is hierarchical
+(category → series → markets), so `SERIES_LIMIT` caps the number of series
+resolved (each series has 1+ markets).
 
 ```sh
+sudo -u collector env GCE_METADATA_MTLS_MODE=none JSON_LOGS=0 SERIES_LIMIT=3 \
+  /opt/collector/venv/bin/python -u -m prediction_markets.kalshi.resolver
+
 sudo -u collector env GCE_METADATA_MTLS_MODE=none JSON_LOGS=0 MARKETS_LIMIT=10 \
   /opt/collector/venv/bin/python -u -m prediction_markets.polymarket.resolver
 ```

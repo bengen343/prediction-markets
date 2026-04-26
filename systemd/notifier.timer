@@ -2,10 +2,13 @@
 Description=Run notifier every 5 minutes
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=5min
-Unit=notifier.service
+# Calendar-based (every 5 min on the wall clock) rather than monotonic. The
+# previous OnUnitActiveSec=5min could get stuck in `active (elapsed)` state
+# after a daemon-reload if the last unit activation was already > 5min ago,
+# leaving the timer with no scheduled next fire.
+OnCalendar=*:0/5
 Persistent=true
+Unit=notifier.service
 
 [Install]
 WantedBy=timers.target

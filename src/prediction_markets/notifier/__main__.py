@@ -33,9 +33,22 @@ def _format_message(row) -> str:
 
 
 def _thread_title(row) -> str:
-    # Forum-channel webhook requires a thread title on the first post. Use the
-    # market title when available; fall back to a market-id-based label.
-    return row.title or f"{row.source}: {row.market_id}"
+    # Forum-channel webhook requires a thread title on the first post. Prefer
+    # the series title (so all markets in one series share one thread), then
+    # fall back to the market title, then a market-id-based label.
+    return (
+        getattr(row, "series_title", None)
+        or row.title
+        or f"{row.source}: {row.market_id}"
+    )
+
+
+def _thread_key(row) -> tuple[str, str]:
+    # Anchor threads on series when we have one (series_ticker is populated
+    # for sources we've integrated series resolution for). Falls back to
+    # market_id so series-less alerts still get their own thread.
+    series_ticker = getattr(row, "series_ticker", None)
+    return (row.source, series_ticker or row.market_id)
 
 
 def _load_debater_config(project_id: str, log) -> bool:
@@ -66,11 +79,11 @@ def main() -> None:
     client = bigquery.Client(project=project_id)
 
     select_sql = f"""
-        SELECT alert_id, source, market_id, title, trade_id, trade_ts,
-               price, size, side, notional, reason
+        SELECT alert_id, source, market_id, title, series_ticker, series_title,
+               trade_id, trade_ts, price, size, side, notional, reason
         FROM `{project_id}.{dataset}.alerts`
         WHERE notified_at IS NULL
-        ORDER BY title, detected_at
+        ORDER BY COALESCE(series_title, title), detected_at
         LIMIT 50
     """
     rows = list(client.query(select_sql).result())
@@ -81,18 +94,20 @@ def main() -> None:
 
     log.info("notifier.pending", count=len(rows))
 
-    # Group by (source, market_id), preserving the order of first appearance
-    # so the *earliest* alert per market is the thread starter.
+    # Group by (source, series_ticker_or_market_id), preserving the order of
+    # first appearance so the *earliest* alert per group is the thread starter.
+    # All markets in the same series share one thread.
     groups: "OrderedDict[tuple[str, str], list]" = OrderedDict()
     for row in rows:
-        groups.setdefault((row.source, row.market_id), []).append(row)
+        groups.setdefault(_thread_key(row), []).append(row)
 
     sent_ids: list[str] = []
-    # market_key -> {thread_id, alert_id (first), title}
-    thread_index: dict[tuple[str, str], dict] = {}
+    # thread_key -> thread_id (used downstream when publishing per-market
+    # debate requests; multiple markets in one series share the same thread).
+    thread_id_by_group: dict[tuple[str, str], str] = {}
 
-    for market_key, market_rows in groups.items():
-        first = market_rows[0]
+    for group_key, group_rows in groups.items():
+        first = group_rows[0]
         thread_id: str | None = None
         try:
             response = post_message(
@@ -105,17 +120,13 @@ def main() -> None:
             if response:
                 thread_id = str(response.get("channel_id") or response.get("id") or "") or None
             if thread_id:
-                thread_index[market_key] = {
-                    "thread_id": thread_id,
-                    "alert_id": first.alert_id,
-                    "title": first.title,
-                }
+                thread_id_by_group[group_key] = thread_id
         except Exception:
             log.exception("notifier.post_failed", alert_id=first.alert_id)
-            # Skip follow-ups for this market if the thread starter failed.
+            # Skip follow-ups for this group if the thread starter failed.
             continue
 
-        for follow_up in market_rows[1:]:
+        for follow_up in group_rows[1:]:
             try:
                 post_message(
                     webhook_url,
@@ -143,11 +154,34 @@ def main() -> None:
         job.result()
         log.info("notifier.marked_sent", count=len(sent_ids))
 
-    if debater_enabled and thread_index:
-        _publish_debate_requests(project_id, thread_index, log)
+    if debater_enabled and thread_id_by_group:
+        # Build per-market debate requests. Each unique (source, market_id)
+        # triggers its own debate (each market is a distinct question), but
+        # all markets within a series share a thread_id so verdicts land
+        # together in the series thread.
+        debate_requests: list[dict] = []
+        seen_markets: set[tuple[str, str]] = set()
+        for group_key, group_rows in groups.items():
+            thread_id = thread_id_by_group.get(group_key)
+            if not thread_id:
+                continue
+            for row in group_rows:
+                market_key = (row.source, row.market_id)
+                if market_key in seen_markets:
+                    continue
+                seen_markets.add(market_key)
+                debate_requests.append({
+                    "alert_id": row.alert_id,
+                    "source": row.source,
+                    "market_id": row.market_id,
+                    "title": row.title,
+                    "thread_id": thread_id,
+                })
+        if debate_requests:
+            _publish_debate_requests(project_id, debate_requests, log)
 
 
-def _publish_debate_requests(project_id: str, thread_index: dict, log) -> None:
+def _publish_debate_requests(project_id: str, requests: list[dict], log) -> None:
     # Lazy import: keeps google-cloud-pubsub off the import path when debater
     # is disabled, so an alert-only deploy doesn't pull or load the dep.
     from google.cloud import pubsub_v1
@@ -156,24 +190,19 @@ def _publish_debate_requests(project_id: str, thread_index: dict, log) -> None:
     topic_path = publisher.topic_path(project_id, _DEBATE_TOPIC)
 
     published = 0
-    for (source, market_id), info in thread_index.items():
-        payload = {
-            "alert_id": info["alert_id"],
-            "source": source,
-            "market_id": market_id,
-            "title": info.get("title"),
-            "thread_id": info["thread_id"],
-        }
+    for req in requests:
         try:
             future = publisher.publish(
-                topic_path, json.dumps(payload).encode("utf-8")
+                topic_path, json.dumps(req).encode("utf-8")
             )
             future.result(timeout=10)
             published += 1
         except Exception:
             log.exception(
                 "notifier.publish_failed",
-                source=source, market_id=market_id, alert_id=info["alert_id"],
+                source=req.get("source"),
+                market_id=req.get("market_id"),
+                alert_id=req.get("alert_id"),
             )
 
     log.info("notifier.published", count=published)

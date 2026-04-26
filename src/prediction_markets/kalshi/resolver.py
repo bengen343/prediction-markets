@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 import yaml
@@ -76,6 +77,23 @@ LOAD_COLUMNS: tuple[str, ...] = (
 ) + KALSHI_FIELDS
 
 
+# --- Kalshi /series schema ---
+# Mirror of the /trade-api/v2/series payload. Update sql/kalshi_series_table.sql
+# in lockstep with this list.
+SERIES_FLOAT_FIELDS: frozenset[str] = frozenset({"volume_fp", "fee_multiplier"})
+SERIES_TIMESTAMP_FIELDS: frozenset[str] = frozenset({"last_updated_ts"})
+SERIES_JSON_STRING_FIELDS: frozenset[str] = frozenset({
+    "tags", "settlement_sources", "additional_prohibitions", "product_metadata",
+})
+
+KALSHI_SERIES_FIELDS: tuple[str, ...] = (
+    "frequency", "title", "tags", "settlement_sources",
+    "contract_url", "contract_terms_url",
+    "fee_type", "fee_multiplier", "additional_prohibitions",
+    "product_metadata", "volume_fp", "last_updated_ts",
+)
+
+
 _ISO_DT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 
 
@@ -114,6 +132,72 @@ def _parse_bool(val: Any) -> bool | None:
     being silently truthified (e.g., '' would become False under bool('')).
     """
     return val if isinstance(val, bool) else None
+
+
+def _build_series_row(series: dict, category_fallback: str) -> dict:
+    row: dict[str, Any] = {
+        "source": "kalshi",
+        "ticker": series.get("ticker"),
+        # Kalshi returns category on most series; fall back to the config
+        # category we discovered it under if the payload omits it.
+        "category": series.get("category") or category_fallback,
+    }
+    for field in KALSHI_SERIES_FIELDS:
+        val = series.get(field)
+        if val is None:
+            row[field] = None
+        elif field in SERIES_FLOAT_FIELDS:
+            row[field] = _parse_float(val)
+        elif field in SERIES_TIMESTAMP_FIELDS:
+            row[field] = _parse_timestamp(val)
+        elif field in SERIES_JSON_STRING_FIELDS:
+            row[field] = val if isinstance(val, str) else json.dumps(val)
+        else:
+            row[field] = val if isinstance(val, str) else str(val)
+    return row
+
+
+def _series_schema() -> list[bigquery.SchemaField]:
+    """Explicit schema for kalshi_series. Required because WRITE_TRUNCATE
+    otherwise rewrites the schema from auto-detection — fields that are
+    null in every row would silently degrade type.
+    """
+    fields = [
+        bigquery.SchemaField("source", "STRING", mode="REQUIRED"),
+        bigquery.SchemaField("ticker", "STRING", mode="REQUIRED"),
+        bigquery.SchemaField("category", "STRING"),
+    ]
+    for field in KALSHI_SERIES_FIELDS:
+        if field in SERIES_TIMESTAMP_FIELDS:
+            ftype = "TIMESTAMP"
+        elif field in SERIES_FLOAT_FIELDS:
+            ftype = "FLOAT64"
+        else:
+            ftype = "STRING"
+        fields.append(bigquery.SchemaField(field, ftype))
+    fields.append(bigquery.SchemaField("resolved_at", "TIMESTAMP", mode="REQUIRED"))
+    return fields
+
+
+def _load_series(
+    bq_client: bigquery.Client,
+    project_id: str,
+    dataset: str,
+    rows: list[dict],
+    log,
+) -> None:
+    target = f"{project_id}.{dataset}.kalshi_series"
+    now_iso = datetime.now(UTC).isoformat()
+    rows_with_ts = [{**r, "resolved_at": now_iso} for r in rows]
+
+    load_cfg = bigquery.LoadJobConfig(
+        source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        schema=_series_schema(),
+    )
+    job = bq_client.load_table_from_json(rows_with_ts, target, job_config=load_cfg)
+    job.result(timeout=180)
+    log.info("series.loaded", count=len(rows))
 
 
 def _build_row(market: dict, series_ticker: str, category: str) -> dict:
@@ -251,14 +335,23 @@ def main() -> None:
     log.info("resolver.config", categories=categories, manual_tickers=len(manual_tickers))
 
     series_by_category: list[tuple[str, str]] = []
+    series_rows: list[dict] = []
     for category in categories:
         count = 0
         for series in get_paginated(
             private_key, access_key_id,
             "/trade-api/v2/series",
             items_key="series",
-            params={"category": category, "limit": 200, "include_volume": "true"},
+            params={
+                "category": category,
+                "limit": 200,
+                "include_volume": "true",
+                "include_product_metadata": "true",
+            },
         ):
+            # Capture every series for the kalshi_series table, regardless of
+            # volume — the table is the canonical view of what's available.
+            series_rows.append(_build_series_row(series, category))
             try:
                 vol = float(series.get("volume_fp", "0") or "0")
             except (TypeError, ValueError):
@@ -268,6 +361,9 @@ def main() -> None:
             series_by_category.append((category, series["ticker"]))
             count += 1
         log.info("resolver.series_discovered", category=category, count=count)
+
+    if series_rows:
+        _load_series(bq_client, project_id, dataset, series_rows, log)
 
     series_limit = int(os.environ.get("SERIES_LIMIT", "0") or "0")
     if series_limit > 0 and len(series_by_category) > series_limit:
