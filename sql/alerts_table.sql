@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS prediction_markets.alerts (
   volume_24h       FLOAT64,
   reason           STRING,
   detected_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP() NOT NULL,
-  notified_at      TIMESTAMP
+  notified_at      TIMESTAMP,
+  discord_thread_id STRING
 )
 PARTITION BY DATE(detected_at)
 CLUSTER BY source, market_id;

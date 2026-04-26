@@ -36,9 +36,11 @@ param(
   [string]$Region = "us-west1",
   [string]$DatasetName = "prediction_markets",
   [string]$ServiceAccountName = "debater-sa",
+  [string]$BotServiceAccountName = "discord-bot-sa",
   [string]$CollectorServiceAccountName = "collector-sa",
   [string]$ArRepoName = "prediction-markets-debater",
   [string]$ServiceName = "debate-worker",
+  [string]$BotServiceName = "discord-bot",
   [string]$TopicName = "debate-requests",
   [string]$SubscriptionName = "debate-worker",
   [string]$BranchPattern = "^main$",
@@ -46,7 +48,9 @@ param(
   [string]$AnthropicApiKey = "",
   [string]$OpenAIApiKey = "",
   [string]$GeminiApiKey = "",
-  [string]$XaiApiKey = ""
+  [string]$XaiApiKey = "",
+  [string]$DiscordBotPublicKey = "",
+  [string]$DiscordBotToken = ""
 )
 
 $ErrorActionPreference = "Continue"
@@ -76,6 +80,7 @@ if (-not $ProjectId) {
 }
 
 $ServiceAccountEmail = "$ServiceAccountName@$ProjectId.iam.gserviceaccount.com"
+$BotServiceAccountEmail = "$BotServiceAccountName@$ProjectId.iam.gserviceaccount.com"
 $CollectorEmail = "$CollectorServiceAccountName@$ProjectId.iam.gserviceaccount.com"
 $ConfigBucket = "$ProjectId-config"
 
@@ -218,13 +223,57 @@ Invoke-Checked {
     --role roles/pubsub.publisher --quiet | Out-Null
 } "grant publisher to collector-sa"
 
+# Discord bot service account also publishes to this topic when /debate fires.
+Write-Host "Granting pubsub.publisher to $BotServiceAccountName on $TopicName..."
+# Created below in section 6b; the binding is idempotent — safe to add even if
+# the SA was just created in this run.
+
 # --- 6. LLM secrets ---
 
 Write-Host "--- LLM API key secrets ---" -ForegroundColor Yellow
-Ensure-Secret -Name "anthropic-api-key" -ValueInline $AnthropicApiKey
-Ensure-Secret -Name "openai-api-key"    -ValueInline $OpenAIApiKey
-Ensure-Secret -Name "gemini-api-key"    -ValueInline $GeminiApiKey
-Ensure-Secret -Name "xai-api-key"       -ValueInline $XaiApiKey
+Ensure-Secret -Name "anthropic-api-key"      -ValueInline $AnthropicApiKey
+Ensure-Secret -Name "openai-api-key"         -ValueInline $OpenAIApiKey
+Ensure-Secret -Name "gemini-api-key"         -ValueInline $GeminiApiKey
+Ensure-Secret -Name "xai-api-key"            -ValueInline $XaiApiKey
+Ensure-Secret -Name "discord-bot-public-key" -ValueInline $DiscordBotPublicKey
+Ensure-Secret -Name "discord-bot-token"      -ValueInline $DiscordBotToken
+
+# --- 6b. Discord bot service account ---
+#
+# Separate identity from debater-sa. Holds: pubsub publisher (publish to
+# debate-requests), BQ read (look up alerts by thread_id), Secret Manager
+# accessor (read public key + bot token for slash-command registration).
+
+Write-Host "--- Discord bot service account ---" -ForegroundColor Yellow
+if (-not (Test-GcloudResource @("iam", "service-accounts", "describe", $BotServiceAccountEmail))) {
+  Invoke-Checked {
+    gcloud iam service-accounts create $BotServiceAccountName `
+      --display-name "Prediction Markets Discord Bot" --quiet
+  } "create discord bot service account"
+} else {
+  Write-Host "Bot SA already exists, skipping create."
+}
+
+$botRoles = @(
+  "roles/bigquery.dataViewer",
+  "roles/bigquery.jobUser",
+  "roles/secretmanager.secretAccessor"
+)
+foreach ($role in $botRoles) {
+  Write-Host "  Binding $role to $BotServiceAccountName..."
+  Invoke-Checked {
+    gcloud projects add-iam-policy-binding $ProjectId `
+      --member "serviceAccount:$BotServiceAccountEmail" `
+      --role $role --condition=None --quiet | Out-Null
+  } "bind $role to bot SA"
+}
+
+# Topic-scoped publisher (deferred from section 5 above; SA didn't exist yet).
+Invoke-Checked {
+  gcloud pubsub topics add-iam-policy-binding $TopicName `
+    --member "serviceAccount:$BotServiceAccountEmail" `
+    --role roles/pubsub.publisher --quiet | Out-Null
+} "grant publisher to bot SA"
 
 # --- 7. Cloud Run service (initial deploy with placeholder image) ---
 #
@@ -267,6 +316,33 @@ Invoke-Checked {
     --member "serviceAccount:$ServiceAccountEmail" `
     --role roles/run.invoker --quiet | Out-Null
 } "grant run.invoker to debater-sa"
+
+# --- 7b. Discord bot Cloud Run service (public; signature verification at app layer) ---
+
+Write-Host "--- Discord bot Cloud Run service ---" -ForegroundColor Yellow
+if (-not (Test-GcloudResource @("run", "services", "describe", $BotServiceName, "--region", $Region))) {
+  Write-Host "Creating $BotServiceName with placeholder image..."
+  Invoke-Checked {
+    gcloud run deploy $BotServiceName `
+      --image $placeholderImage `
+      --region $Region `
+      --service-account $BotServiceAccountEmail `
+      --allow-unauthenticated `
+      --max-instances 5 `
+      --concurrency 20 `
+      --timeout 30 `
+      --cpu 1 `
+      --memory 256Mi `
+      --quiet
+  } "deploy discord-bot (initial)"
+} else {
+  Write-Host "Discord bot service already exists, leaving image untouched (Cloud Build manages it)."
+}
+
+$botRunUrl = & gcloud run services describe $BotServiceName --region $Region --format "value(status.url)" 2>$null
+if (-not $botRunUrl) { throw "Failed to resolve Cloud Run service URL for $BotServiceName." }
+Write-Host "Bot URL: $botRunUrl"
+Write-Host "Interaction endpoint to register with Discord: $botRunUrl/interaction"
 
 # --- 8. Pub/Sub push subscription ---
 
@@ -351,51 +427,60 @@ Write-Host "--- Cloud Build trigger ---" -ForegroundColor Yellow
 $triggerName = "$ServiceName-on-push"
 $cbSaResource = "projects/$ProjectId/serviceAccounts/$CloudBuildSaEmail"
 
+# Delete and recreate so the included_files + substitutions stay in sync
+# across re-runs (gcloud doesn't expose `update github` for first-gen triggers).
 $triggerExists = Test-NativeSuccess { gcloud builds triggers describe $triggerName }
 if ($triggerExists) {
-  Write-Host "Trigger $triggerName already exists, skipping create."
-} else {
-  Write-Host "Creating trigger $triggerName..."
-  $included = "src/prediction_markets/debater/**,cloudbuild.yaml,pyproject.toml"
-  & gcloud builds triggers create github `
-    --name $triggerName `
-    --repo-owner $GitHubOwner `
-    --repo-name $GitHubRepo `
-    --branch-pattern $BranchPattern `
-    --build-config cloudbuild.yaml `
-    --included-files $included `
-    --substitutions "_REGION=$Region,_AR_REPO=$ArRepoName,_SERVICE_NAME=$ServiceName" `
-    --service-account $cbSaResource `
-    --quiet
-  if ($LASTEXITCODE -ne 0) {
-    Write-Host ""
-    Write-Host "Cloud Build trigger creation failed." -ForegroundColor Yellow
-    Write-Host "This almost always means the Cloud Build GitHub App has not been"
-    Write-Host "installed on ${GitHubOwner}/${GitHubRepo}. To fix:"
-    Write-Host "  1. Visit: https://github.com/apps/google-cloud-build/installations/new"
-    Write-Host "  2. Install on the '$GitHubOwner' account and grant access to '$GitHubRepo'."
-    Write-Host "  3. Re-run this script. All other steps are idempotent."
-  }
+  Write-Host "Replacing existing trigger $triggerName so config stays in sync..."
+  Invoke-Checked {
+    gcloud builds triggers delete $triggerName --quiet | Out-Null
+  } "delete existing Cloud Build trigger"
+}
+
+Write-Host "Creating trigger $triggerName..."
+$included = "src/prediction_markets/debater/**,src/prediction_markets/discord_bot/**,cloudbuild.yaml,pyproject.toml"
+& gcloud builds triggers create github `
+  --name $triggerName `
+  --repo-owner $GitHubOwner `
+  --repo-name $GitHubRepo `
+  --branch-pattern $BranchPattern `
+  --build-config cloudbuild.yaml `
+  --included-files $included `
+  --substitutions "_REGION=$Region,_AR_REPO=$ArRepoName,_DEBATER_SVC=$ServiceName,_BOT_SVC=$BotServiceName" `
+  --service-account $cbSaResource `
+  --quiet
+if ($LASTEXITCODE -ne 0) {
+  Write-Host ""
+  Write-Host "Cloud Build trigger creation failed." -ForegroundColor Yellow
+  Write-Host "This almost always means the Cloud Build GitHub App has not been"
+  Write-Host "installed on ${GitHubOwner}/${GitHubRepo}. To fix:"
+  Write-Host "  1. Visit: https://github.com/apps/google-cloud-build/installations/new"
+  Write-Host "  2. Install on the '$GitHubOwner' account and grant access to '$GitHubRepo'."
+  Write-Host "  3. Re-run this script. All other steps are idempotent."
 }
 
 # --- Summary ---
 
 Write-Host ""
 Write-Host "=== Done ===" -ForegroundColor Green
-Write-Host "Topic:        projects/$ProjectId/topics/$TopicName"
-Write-Host "Subscription: projects/$ProjectId/subscriptions/$SubscriptionName"
-Write-Host "Service:      $runUrl"
-Write-Host "AR repo:      $Region-docker.pkg.dev/$ProjectId/$ArRepoName"
-Write-Host "Trigger:      $triggerName (path: src/prediction_markets/debater/**)"
+Write-Host "Topic:           projects/$ProjectId/topics/$TopicName"
+Write-Host "Subscription:    projects/$ProjectId/subscriptions/$SubscriptionName"
+Write-Host "Debater service: $runUrl"
+Write-Host "Bot service:     $botRunUrl"
+Write-Host "Bot interaction: $botRunUrl/interaction"
+Write-Host "AR repo:         $Region-docker.pkg.dev/$ProjectId/$ArRepoName"
+Write-Host "Trigger:         $triggerName (paths: debater/**, discord_bot/**)"
 Write-Host ""
 
 $missing = @()
-if (-not $AnthropicApiKey) { $missing += "anthropic-api-key" }
-if (-not $OpenAIApiKey)    { $missing += "openai-api-key" }
-if (-not $GeminiApiKey)    { $missing += "gemini-api-key" }
-if (-not $XaiApiKey)       { $missing += "xai-api-key" }
+if (-not $AnthropicApiKey)     { $missing += "anthropic-api-key" }
+if (-not $OpenAIApiKey)        { $missing += "openai-api-key" }
+if (-not $GeminiApiKey)        { $missing += "gemini-api-key" }
+if (-not $XaiApiKey)           { $missing += "xai-api-key" }
+if (-not $DiscordBotPublicKey) { $missing += "discord-bot-public-key" }
+if (-not $DiscordBotToken)     { $missing += "discord-bot-token" }
 if ($missing.Count -gt 0) {
-  Write-Host "LLM secrets still needing values:" -ForegroundColor Yellow
+  Write-Host "Secrets still needing values:" -ForegroundColor Yellow
   foreach ($m in $missing) {
     Write-Host "  - $m   (echo VALUE | gcloud secrets versions add $m --data-file=-)"
   }
@@ -404,7 +489,21 @@ if ($missing.Count -gt 0) {
 Write-Host ""
 Write-Host "Next steps:"
 Write-Host "  1. Switch the Discord alerts channel to a Forum channel and update"
-Write-Host "     the discord-webhook-url secret to its webhook."
-Write-Host "  2. Set 'debater: { enabled: true }' in gs://$ConfigBucket/markets.yaml."
-Write-Host "  3. Push to main to kick off the first Cloud Build deploy of $ServiceName."
-Write-Host "  4. Re-run scripts/deploy-vm.ps1 to install google-cloud-pubsub on the VM."
+Write-Host "     the discord-webhook-url secret to its webhook (already done if"
+Write-Host "     debater is already running)."
+Write-Host "  2. Push to main to kick off the first Cloud Build deploy of both"
+Write-Host "     services. Cloud Build will replace the placeholder images."
+Write-Host "  3. Apply the alerts schema change for discord_thread_id:"
+Write-Host "     bq query --use_legacy_sql=false ""ALTER TABLE prediction_markets.alerts ADD COLUMN discord_thread_id STRING"""
+Write-Host "  4. Create a Discord application at https://discord.com/developers/applications,"
+Write-Host "     copy its public key into discord-bot-public-key, copy the bot token"
+Write-Host "     into discord-bot-token, and set the application's Interactions URL to:"
+Write-Host "     $botRunUrl/interaction"
+Write-Host "  5. Register the slash command:"
+Write-Host "     .\scripts\register-discord-commands.ps1 -ApplicationId <APP_ID> -GuildId <GUILD_ID>"
+Write-Host "  6. To use the bot exclusively (no auto-debate), set in markets.yaml:"
+Write-Host "     debater:"
+Write-Host "       enabled: true"
+Write-Host "       auto_publish: false"
+Write-Host "  7. Re-run scripts/deploy-vm.ps1 to push the notifier change that persists"
+Write-Host "     discord_thread_id back to alerts (required for /debate without args)."

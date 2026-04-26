@@ -51,18 +51,19 @@ def _thread_key(row) -> tuple[str, str]:
     return (row.source, series_ticker or row.market_id)
 
 
-def _load_debater_config(project_id: str, log) -> bool:
+def _load_debater_config(project_id: str, log) -> tuple[bool, bool]:
+    """Returns (enabled, auto_publish) read from gs://<bucket>/markets.yaml."""
     bucket_name = os.environ.get("CONFIG_BUCKET", f"{project_id}-config")
     try:
         client = storage.Client(project=project_id)
         blob = client.bucket(bucket_name).blob("markets.yaml")
         if not blob.exists():
-            return False
+            return (False, True)
         config = parse_markets_yaml(blob.download_as_bytes())
-        return config.debater.enabled
+        return (config.debater.enabled, config.debater.auto_publish)
     except Exception:
         log.exception("notifier.debater_config_load_failed")
-        return False
+        return (False, True)
 
 
 def main() -> None:
@@ -73,8 +74,12 @@ def main() -> None:
     dataset = os.environ.get("BQ_DATASET", "prediction_markets")
     webhook_url = get_secret("discord-webhook-url")
 
-    debater_enabled = _load_debater_config(project_id, log)
-    log.info("notifier.startup", debater_enabled=debater_enabled)
+    debater_enabled, debater_auto_publish = _load_debater_config(project_id, log)
+    log.info(
+        "notifier.startup",
+        debater_enabled=debater_enabled,
+        debater_auto_publish=debater_auto_publish,
+    )
 
     client = bigquery.Client(project=project_id)
 
@@ -138,23 +143,63 @@ def main() -> None:
                 log.exception("notifier.post_failed", alert_id=follow_up.alert_id)
 
     if sent_ids:
-        update_sql = f"""
-            UPDATE `{project_id}.{dataset}.alerts`
-            SET notified_at = CURRENT_TIMESTAMP()
-            WHERE alert_id IN UNNEST(@ids)
-        """
-        job = client.query(
-            update_sql,
-            job_config=bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ArrayQueryParameter("ids", "STRING", sent_ids)
-                ]
-            ),
-        )
-        job.result()
+        # Build alert_id -> thread_id map so the discord-bot can later query
+        # alerts by thread_id (e.g. when /debate is invoked in a thread).
+        alert_to_thread: dict[str, str] = {}
+        for group_key, group_rows in groups.items():
+            tid = thread_id_by_group.get(group_key)
+            if not tid:
+                continue
+            for row in group_rows:
+                if row.alert_id in sent_ids:
+                    alert_to_thread[row.alert_id] = tid
+
+        # Bucket sent_ids by their thread_id. One UPDATE per thread keeps the
+        # set of values bounded (~5 distinct threads per cycle in practice).
+        # Alerts with no thread_id (rare — Discord post returned no body) get
+        # a final UPDATE that only stamps notified_at.
+        threads_to_alerts: dict[str, list[str]] = {}
+        no_thread: list[str] = []
+        for aid in sent_ids:
+            tid = alert_to_thread.get(aid)
+            if tid:
+                threads_to_alerts.setdefault(tid, []).append(aid)
+            else:
+                no_thread.append(aid)
+
+        for tid, alert_ids in threads_to_alerts.items():
+            client.query(
+                f"""
+                UPDATE `{project_id}.{dataset}.alerts`
+                SET notified_at = CURRENT_TIMESTAMP(),
+                    discord_thread_id = @tid
+                WHERE alert_id IN UNNEST(@ids)
+                """,
+                job_config=bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("tid", "STRING", tid),
+                        bigquery.ArrayQueryParameter("ids", "STRING", alert_ids),
+                    ]
+                ),
+            ).result()
+
+        if no_thread:
+            client.query(
+                f"""
+                UPDATE `{project_id}.{dataset}.alerts`
+                SET notified_at = CURRENT_TIMESTAMP()
+                WHERE alert_id IN UNNEST(@ids)
+                """,
+                job_config=bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ArrayQueryParameter("ids", "STRING", no_thread)
+                    ]
+                ),
+            ).result()
+
         log.info("notifier.marked_sent", count=len(sent_ids))
 
-    if debater_enabled and thread_id_by_group:
+    if debater_enabled and debater_auto_publish and thread_id_by_group:
         # Build per-market debate requests. Each unique (source, market_id)
         # triggers its own debate (each market is a distinct question), but
         # all markets within a series share a thread_id so verdicts land

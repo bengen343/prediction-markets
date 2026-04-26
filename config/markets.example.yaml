@@ -29,9 +29,14 @@ polymarket:
     - politics
   tickers: []
 
-# Optional. When enabled: true, the notifier publishes one Pub/Sub message per
-# unique (source, market_id) per cycle to the `debate-requests` topic, which
-# triggers the debate-worker Cloud Run service to spin up an LLM debate. Leave
-# absent or set to false to run alert-only with no LLM dependencies.
+# Optional. When enabled: true, the LLM debater pipeline is wired up.
+#   auto_publish: true  -> notifier auto-publishes one Pub/Sub message per
+#                          unique (source, market_id) per cycle (every alert
+#                          triggers a debate).
+#   auto_publish: false -> notifier stays silent; debates only fire when
+#                          you invoke /debate via the Discord bot.
+# Leave the section absent or enabled: false to run alert-only with no LLM
+# dependencies.
 debater:
   enabled: false
+  auto_publish: true

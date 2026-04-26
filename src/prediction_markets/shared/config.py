@@ -30,6 +30,11 @@ class PolymarketConfig:
 @dataclass(frozen=True)
 class DebaterConfig:
     enabled: bool = False
+    # When True (default), the notifier auto-publishes a Pub/Sub message for
+    # every market that triggers an alert. When False, the notifier stays
+    # silent and debates are only triggered manually via the Discord bot's
+    # /debate slash command.
+    auto_publish: bool = True
 
 
 @dataclass(frozen=True)
@@ -63,6 +68,7 @@ def _parse(raw: bytes) -> MarketsConfig:
         ),
         debater=DebaterConfig(
             enabled=bool(d.get("enabled", False)),
+            auto_publish=bool(d.get("auto_publish", True)),
         ),
     )
 
