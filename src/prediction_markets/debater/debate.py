@@ -65,6 +65,12 @@ def run_debate(
             new_entries: list[dict] = []
             for r in results:
                 budget.charge(r.provider, r.cost_usd)
+                if r.error:
+                    log.error(
+                        "debate.agent_error",
+                        debate_id=debate_id, turn=turn,
+                        provider=r.provider, error=r.error[:500],
+                    )
                 entry = {
                     "turn": turn,
                     "provider": r.provider,
@@ -104,6 +110,11 @@ def run_debate(
                 wrap_up=budget.near_exhaustion,
             )
             budget.charge("moderator", mod_result.cost_usd)
+            if mod_result.error:
+                log.error(
+                    "debate.moderator_error",
+                    debate_id=debate_id, turn=turn, error=mod_result.error[:500],
+                )
             transcript_writer.append({
                 "turn": turn,
                 "moderator": True,

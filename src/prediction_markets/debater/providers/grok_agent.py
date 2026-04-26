@@ -3,18 +3,19 @@ from openai import OpenAI
 from .base import AgentResult
 from .pricing import compute_cost
 
-# xAI exposes an OpenAI-compatible Chat Completions endpoint. Live Search rides
-# on a non-standard `search_parameters` field, which we pass via `extra_body`.
+# xAI deprecated the Chat Completions Live Search path (search_parameters via
+# extra_body) and moved web search into the new Responses API + Agent Tools.
+# Same OpenAI-compat SDK; different endpoint and tool spec.
 _BASE_URL = "https://api.x.ai/v1"
-_MODEL = "grok-4"
+_MODEL = "grok-4.20-reasoning"
 
 _SYSTEM = (
     "You are one of four AI agents (Claude, GPT, Gemini, Grok) participating in "
     "a structured debate to estimate the probability of a prediction-market "
-    "question resolving YES. Use Live Search to gather public evidence; do not "
-    "rely on prior training alone for time-sensitive facts. State a probability "
-    "(0.0-1.0) and the key evidence. If you disagree with prior turns, say so "
-    "explicitly with reasoning. Keep responses under 250 words."
+    "question resolving YES. Use the web_search tool to gather public evidence; "
+    "do not rely on prior training alone for time-sensitive facts. State a "
+    "probability (0.0-1.0) and the key evidence. If you disagree with prior "
+    "turns, say so explicitly with reasoning. Keep responses under 250 words."
 )
 
 
@@ -25,36 +26,27 @@ class GrokAgent:
         self._client = OpenAI(api_key=api_key, base_url=_BASE_URL)
 
     def run(self, question: str, transcript: list[dict]) -> AgentResult:
-        user_msg = _build_user_message(question, transcript)
+        prompt = _build_input(question, transcript)
         try:
-            resp = self._client.chat.completions.create(
+            resp = self._client.responses.create(
                 model=_MODEL,
-                messages=[
-                    {"role": "system", "content": _SYSTEM},
-                    {"role": "user", "content": user_msg},
-                ],
-                extra_body={"search_parameters": {"mode": "auto"}},
+                instructions=_SYSTEM,
+                input=prompt,
+                tools=[{"type": "web_search"}],
             )
         except Exception as e:
             return AgentResult(provider=self.provider, model=_MODEL, text="", error=str(e))
 
-        choice = resp.choices[0] if resp.choices else None
-        text = (choice.message.content if choice and choice.message else "") or ""
+        text = getattr(resp, "output_text", "") or ""
+        search_count = 0
+        for item in getattr(resp, "output", []) or []:
+            itype = getattr(item, "type", None) or (item.get("type") if isinstance(item, dict) else None)
+            if itype == "web_search_call":
+                search_count += 1
 
         usage = getattr(resp, "usage", None)
-        in_tok = getattr(usage, "prompt_tokens", 0) if usage else 0
-        out_tok = getattr(usage, "completion_tokens", 0) if usage else 0
-
-        # xAI returns a `num_sources_used` field on Live Search responses; the
-        # exact location varies. Best-effort lookup; fall back to 0.
-        search_count = 0
-        usage_dict = getattr(usage, "model_dump", lambda: {})() if usage else {}
-        search_count = (
-            usage_dict.get("num_sources_used")
-            or (usage_dict.get("search_usage") or {}).get("num_sources_used")
-            or 0
-        )
-
+        in_tok = getattr(usage, "input_tokens", 0) if usage else 0
+        out_tok = getattr(usage, "output_tokens", 0) if usage else 0
         cost = compute_cost(self.provider, in_tok or 0, out_tok or 0, search_count)
 
         return AgentResult(
@@ -68,7 +60,7 @@ class GrokAgent:
         )
 
 
-def _build_user_message(question: str, transcript: list[dict]) -> str:
+def _build_input(question: str, transcript: list[dict]) -> str:
     lines = [f"QUESTION: {question}", ""]
     if transcript:
         lines.append("PRIOR TURNS:")
