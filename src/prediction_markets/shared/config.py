@@ -10,15 +10,27 @@ log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
-class SourceConfig:
+class KalshiConfig:
     tickers: tuple[str, ...] = ()
     categories: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
+class PolymarketSubscription:
+    market_id: str
+    yes_token_id: str
+    no_token_id: str
+
+
+@dataclass(frozen=True)
+class PolymarketConfig:
+    markets: tuple[PolymarketSubscription, ...] = ()
+
+
+@dataclass(frozen=True)
 class MarketsConfig:
-    kalshi: SourceConfig = SourceConfig()
-    polymarket: SourceConfig = SourceConfig()
+    kalshi: KalshiConfig = KalshiConfig()
+    polymarket: PolymarketConfig = PolymarketConfig()
 
 
 def _parse(raw: bytes) -> MarketsConfig:
@@ -26,13 +38,21 @@ def _parse(raw: bytes) -> MarketsConfig:
     k = data.get("kalshi") or {}
     p = data.get("polymarket") or {}
     return MarketsConfig(
-        kalshi=SourceConfig(
+        kalshi=KalshiConfig(
             tickers=tuple(k.get("tickers") or []),
             categories=tuple(k.get("categories") or []),
         ),
-        polymarket=SourceConfig(
-            tickers=tuple(p.get("tickers") or []),
-            categories=tuple(p.get("categories") or []),
+        polymarket=PolymarketConfig(
+            markets=tuple(
+                PolymarketSubscription(
+                    market_id=str(m["market_id"]),
+                    yes_token_id=str(m["yes_token_id"]),
+                    no_token_id=str(m["no_token_id"]),
+                )
+                for m in (p.get("markets") or [])
+                if isinstance(m, dict) and m.get("market_id")
+                and m.get("yes_token_id") and m.get("no_token_id")
+            ),
         ),
     )
 
@@ -63,7 +83,7 @@ class ConfigWatcher:
             "config.loaded",
             kalshi_tickers=len(self._current.kalshi.tickers),
             kalshi_categories=len(self._current.kalshi.categories),
-            polymarket_tickers=len(self._current.polymarket.tickers),
+            polymarket_markets=len(self._current.polymarket.markets),
         )
         self._task = asyncio.create_task(self._refresh_loop())
 
@@ -85,6 +105,7 @@ class ConfigWatcher:
                         "config.changed",
                         kalshi_tickers=len(new.kalshi.tickers),
                         kalshi_categories=len(new.kalshi.categories),
+                        polymarket_markets=len(new.polymarket.markets),
                     )
                     self._current = new
             except asyncio.CancelledError:

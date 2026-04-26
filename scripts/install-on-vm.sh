@@ -57,7 +57,11 @@ if ls "${STAGING}/systemd/"*.timer >/dev/null 2>&1; then
   cp "${STAGING}/systemd/"*.timer /etc/systemd/system/
 fi
 systemctl daemon-reload
-systemctl enable kalshi-collector.service >/dev/null
+for svc in kalshi-collector.service polymarket-collector.service; do
+  if [ -f "/etc/systemd/system/${svc}" ]; then
+    systemctl enable "${svc}" >/dev/null
+  fi
+done
 # enable --now arms the timer immediately and is idempotent on re-runs.
 for timer in notifier.timer kalshi-resolver.timer polymarket-resolver.timer; do
   if [ -f "/etc/systemd/system/${timer}" ]; then
@@ -67,9 +71,17 @@ done
 
 # 6. Restart units + report status
 echo "Restarting units..."
-systemctl restart kalshi-collector.service
+for svc in kalshi-collector.service polymarket-collector.service; do
+  if [ -f "/etc/systemd/system/${svc}" ]; then
+    systemctl restart "${svc}"
+  fi
+done
 sleep 2
-systemctl --no-pager status kalshi-collector.service || true
+for svc in kalshi-collector.service polymarket-collector.service; do
+  if [ -f "/etc/systemd/system/${svc}" ]; then
+    systemctl --no-pager status "${svc}" || true
+  fi
+done
 for timer in notifier.timer kalshi-resolver.timer polymarket-resolver.timer; do
   if [ -f "/etc/systemd/system/${timer}" ]; then
     systemctl --no-pager status "${timer}" || true

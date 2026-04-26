@@ -1,0 +1,29 @@
+[Unit]
+Description=Polymarket prediction market trade collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=collector
+Group=collector
+WorkingDirectory=/opt/collector
+ExecStart=/opt/collector/venv/bin/python -m prediction_markets.polymarket
+Restart=always
+RestartSec=5
+
+# Recent google-auth versions default to attempting mTLS against the GCE
+# metadata server. Standard VMs do not have a client cert provisioned, so the
+# handshake fails. Force plain HTTP metadata access.
+Environment=GCE_METADATA_MTLS_MODE=none
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polymarket-collector
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

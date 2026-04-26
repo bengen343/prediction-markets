@@ -62,7 +62,7 @@ SELECT
   c.alert_id,
   c.source,
   c.market_id,
-  markets.title,
+  coalesce(kalshi_markets.title, INITCAP(REPLACE(REGEXP_REPLACE(polymarket_markets.slug, r'-[0-9]+$', ''), '-', ' ')) || '?') as title,
   c.trade_id,
   c.trade_ts,
   c.price,
@@ -70,7 +70,7 @@ SELECT
   c.side,
   c.notional,
   FORMAT(
-    'size=%d (%.1f x average %.1f), notional=%.2f (%.1f x average %.2f)',
+    'size=%.2f (%.1f x average %.1f), notional=%.2f (%.1f x average %.2f)',
     c.size,
     CAST(c.size AS FLOAT64) / NULLIF(c.average_size, 0),
     c.average_size,
@@ -79,8 +79,10 @@ SELECT
     c.average_notional
   ) AS reason
 FROM candidates c
-LEFT JOIN prediction_markets.markets as markets
-  ON c.market_id = markets.ticker
+LEFT JOIN prediction_markets.markets as kalshi_markets
+  ON c.market_id = kalshi_markets.ticker
+LEFT JOIN prediction_markets.polymarket_markets as polymarket_markets
+  ON c.market_id = polymarket_markets.id
 WHERE NOT EXISTS (
   SELECT 1 FROM prediction_markets.alerts a
   WHERE a.alert_id = c.alert_id
