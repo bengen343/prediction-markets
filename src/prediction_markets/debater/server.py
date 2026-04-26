@@ -11,7 +11,7 @@ from ..shared.secrets import get_project_id, get_secret
 from .bq_writer import utc_now_iso, write_debate_row
 from .cache import find_cached_consensus
 from .debate import load_api_keys, run_debate
-from .verdict_post import post_verdict
+from .verdict_post import post_transcript, post_verdict
 
 configure_logging(os.environ.get("LOG_LEVEL", "INFO"))
 log = get_logger(__name__)
@@ -122,6 +122,10 @@ def handle_pubsub_push() -> tuple[str, int]:
         log.exception("debater.bq_write_failed", debate_id=output.debate_id)
 
     if thread_id:
+        try:
+            post_transcript(webhook_url, thread_id, output.full_transcript)
+        except Exception:
+            log.exception("debater.transcript_post_failed", debate_id=output.debate_id)
         try:
             post_verdict(webhook_url, thread_id, output.verdict, output.outcome)
         except Exception:

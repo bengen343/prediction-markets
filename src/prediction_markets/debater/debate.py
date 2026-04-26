@@ -24,6 +24,11 @@ class DebateOutput:
     total_cost_usd: float
     cost_by_provider: dict[str, float]
     transcript_gcs_uri: str | None
+    # Full sequence of agent + moderator entries in order. The agent-only
+    # `transcript` used inside run_debate is intentionally separate (we don't
+    # want agents to see the moderator's reasoning when forming next-turn
+    # responses, otherwise they'd play to the moderator).
+    full_transcript: list[dict]
 
 
 def run_debate(
@@ -45,6 +50,7 @@ def run_debate(
     moderator = Moderator(api_keys["anthropic"])
 
     transcript: list[dict] = []
+    full_transcript: list[dict] = []
     turn = 0
     outcome = "error"
     verdict: dict | None = None
@@ -85,6 +91,7 @@ def run_debate(
                 new_entries.append(entry)
                 transcript_writer.append(entry)
             transcript.extend(new_entries)
+            full_transcript.extend(new_entries)
 
             # Bail if every agent failed this turn — without it, an outage
             # (or missing keys) would trap us in an unkillable loop since
@@ -115,7 +122,7 @@ def run_debate(
                     "debate.moderator_error",
                     debate_id=debate_id, turn=turn, error=mod_result.error[:500],
                 )
-            transcript_writer.append({
+            mod_entry = {
                 "turn": turn,
                 "moderator": True,
                 "model": mod_result.model,
@@ -126,7 +133,9 @@ def run_debate(
                 "output_tokens": mod_result.output_tokens,
                 "cost_usd": mod_result.cost_usd,
                 "error": mod_result.error,
-            })
+            }
+            transcript_writer.append(mod_entry)
+            full_transcript.append(mod_entry)
 
             decision_kind = decision.get("decision")
             if decision_kind == "consensus":
@@ -160,6 +169,7 @@ def run_debate(
         total_cost_usd=budget.total,
         cost_by_provider=budget.by_provider,
         transcript_gcs_uri=transcript_uri,
+        full_transcript=full_transcript,
     )
 
 
