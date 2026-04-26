@@ -28,15 +28,22 @@ class PolymarketConfig:
 
 
 @dataclass(frozen=True)
+class DebaterConfig:
+    enabled: bool = False
+
+
+@dataclass(frozen=True)
 class MarketsConfig:
     kalshi: KalshiConfig = KalshiConfig()
     polymarket: PolymarketConfig = PolymarketConfig()
+    debater: DebaterConfig = DebaterConfig()
 
 
 def _parse(raw: bytes) -> MarketsConfig:
     data = yaml.safe_load(raw) or {}
     k = data.get("kalshi") or {}
     p = data.get("polymarket") or {}
+    d = data.get("debater") or {}
     return MarketsConfig(
         kalshi=KalshiConfig(
             tickers=tuple(k.get("tickers") or []),
@@ -53,6 +60,9 @@ def _parse(raw: bytes) -> MarketsConfig:
                 if isinstance(m, dict) and m.get("market_id")
                 and m.get("yes_token_id") and m.get("no_token_id")
             ),
+        ),
+        debater=DebaterConfig(
+            enabled=bool(d.get("enabled", False)),
         ),
     )
 

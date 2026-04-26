@@ -7,6 +7,7 @@ dependencies = [
     "websockets>=13.0",
     "cryptography>=42.0",
     "google-cloud-bigquery>=3.25.0",
+    "google-cloud-pubsub>=2.25.0",
     "google-cloud-secret-manager>=2.20.0",
     "google-cloud-storage>=2.17.0",
     "pyyaml>=6.0",
@@ -18,6 +19,15 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.6",
+]
+# Installed inside the Cloud Run debater container; not installed on the
+# alerting VM. See src/prediction_markets/debater/Dockerfile.
+debater = [
+    "anthropic>=0.40.0",
+    "openai>=1.50.0",
+    "google-genai>=0.8.0",
+    "flask>=3.0",
+    "gunicorn>=22.0",
 ]
 
 [build-system]
