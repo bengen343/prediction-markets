@@ -80,6 +80,18 @@ def run_debate(
                 transcript_writer.append(entry)
             transcript.extend(new_entries)
 
+            # Bail if every agent failed this turn — without it, an outage
+            # (or missing keys) would trap us in an unkillable loop since
+            # zero-cost turns never trip the budget cap.
+            if all(r.error for r in results):
+                log.error(
+                    "debate.all_agents_failed",
+                    debate_id=debate_id, turn=turn,
+                    errors=[r.error for r in results],
+                )
+                outcome = "error"
+                break
+
             # Moderator evaluates after each round. Pass wrap-up signal once we
             # cross the soft warning threshold, but only flag the moderator —
             # we still rely on the hard cap to stop the loop.
