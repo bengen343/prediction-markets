@@ -51,6 +51,38 @@ def _thread_key(row) -> tuple[str, str]:
     return (row.source, series_ticker or row.market_id)
 
 
+def _lookup_recent_threads(
+    client: bigquery.Client,
+    project_id: str,
+    dataset: str,
+    hours: int = 1,
+) -> dict[tuple[str, str], str]:
+    """Build (source, series_ticker) -> most-recent thread_id map for alerts
+    notified within the lookback window. Used to consolidate alerts in the
+    same series into a single thread across notifier cycles. Series-less
+    alerts (NULL series_ticker) are intentionally excluded — they always
+    create their own thread.
+    """
+    sql = f"""
+        SELECT
+          source,
+          series_ticker,
+          ARRAY_AGG(discord_thread_id ORDER BY notified_at DESC LIMIT 1)[OFFSET(0)] AS thread_id
+        FROM `{project_id}.{dataset}.alerts`
+        WHERE notified_at > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @hours HOUR)
+          AND discord_thread_id IS NOT NULL
+          AND series_ticker IS NOT NULL
+        GROUP BY source, series_ticker
+    """
+    job = client.query(
+        sql,
+        job_config=bigquery.QueryJobConfig(
+            query_parameters=[bigquery.ScalarQueryParameter("hours", "INT64", hours)]
+        ),
+    )
+    return {(r.source, r.series_ticker): r.thread_id for r in job.result() if r.thread_id}
+
+
 def _load_debater_config(project_id: str, log) -> tuple[bool, bool]:
     """Returns (enabled, auto_publish) read from gs://<bucket>/markets.yaml."""
     bucket_name = os.environ.get("CONFIG_BUCKET", f"{project_id}-config")
@@ -106,6 +138,11 @@ def main() -> None:
     for row in rows:
         groups.setdefault(_thread_key(row), []).append(row)
 
+    # Look up existing threads for these groups from the past hour so that a
+    # series with rolling alerts consolidates into one ongoing thread rather
+    # than spawning a new thread per cycle.
+    existing_threads = _lookup_recent_threads(client, project_id, dataset, hours=1)
+
     sent_ids: list[str] = []
     # thread_key -> thread_id (used downstream when publishing per-market
     # debate requests; multiple markets in one series share the same thread).
@@ -113,21 +150,36 @@ def main() -> None:
 
     for group_key, group_rows in groups.items():
         first = group_rows[0]
-        thread_id: str | None = None
+        thread_id: str | None = existing_threads.get(group_key)
+        reused = thread_id is not None
+
         try:
-            response = post_message(
-                webhook_url,
-                _format_message(first),
-                thread_name=_thread_title(first),
-            )
+            if reused:
+                # Post directly into the existing thread; no thread_name (Discord
+                # rejects thread_name + thread_id together).
+                post_message(
+                    webhook_url,
+                    _format_message(first),
+                    thread_id=thread_id,
+                )
+            else:
+                response = post_message(
+                    webhook_url,
+                    _format_message(first),
+                    thread_name=_thread_title(first),
+                )
+                # For forum-channel webhooks, response.channel_id is the new thread's ID.
+                if response:
+                    thread_id = str(response.get("channel_id") or response.get("id") or "") or None
             sent_ids.append(first.alert_id)
-            # For forum-channel webhooks, response.channel_id is the new thread's ID.
-            if response:
-                thread_id = str(response.get("channel_id") or response.get("id") or "") or None
             if thread_id:
                 thread_id_by_group[group_key] = thread_id
         except Exception:
-            log.exception("notifier.post_failed", alert_id=first.alert_id)
+            log.exception(
+                "notifier.post_failed",
+                alert_id=first.alert_id,
+                reused_thread=reused,
+            )
             # Skip follow-ups for this group if the thread starter failed.
             continue
 
