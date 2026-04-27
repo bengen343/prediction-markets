@@ -46,6 +46,7 @@ def handle_debate_command(payload: dict, log) -> dict:
         synthetic = uuid.uuid4().hex[:12]
         alert_id = f"manual-{synthetic}"
         source = "manual"
+        series_ticker = None
         market_id = f"manual-{synthetic}"
         question = custom_question
         ack = f"Debate queued by **{user_label}** — _{question}_"
@@ -59,6 +60,7 @@ def handle_debate_command(payload: dict, log) -> dict:
             ))
         alert_id = alert["alert_id"]
         source = alert["source"]
+        series_ticker = alert.get("series_ticker")
         market_id = alert["market_id"]
         question = alert["title"]
         ack = (
@@ -69,6 +71,7 @@ def handle_debate_command(payload: dict, log) -> dict:
     msg = {
         "alert_id": alert_id,
         "source": source,
+        "series_ticker": series_ticker,
         "market_id": market_id,
         "title": question,
         "thread_id": str(channel_id) if channel_id else None,
@@ -98,7 +101,7 @@ def _lookup_thread_alert(project_id: str, dataset: str, thread_id) -> dict | Non
         return None
     client = bigquery.Client(project=project_id)
     sql = f"""
-        SELECT alert_id, source, market_id, title
+        SELECT alert_id, source, series_ticker, market_id, title
         FROM `{project_id}.{dataset}.alerts`
         WHERE discord_thread_id = @tid
         ORDER BY detected_at DESC
@@ -119,6 +122,7 @@ def _lookup_thread_alert(project_id: str, dataset: str, thread_id) -> dict | Non
     return {
         "alert_id": r.alert_id,
         "source": r.source,
+        "series_ticker": r.series_ticker,
         "market_id": r.market_id,
         "title": r.title,
     }

@@ -218,6 +218,7 @@ def main() -> None:
                 debate_requests.append({
                     "alert_id": row.alert_id,
                     "source": row.source,
+                    "series_ticker": getattr(row, "series_ticker", None),
                     "market_id": row.market_id,
                     "title": row.title,
                     "thread_id": thread_id,

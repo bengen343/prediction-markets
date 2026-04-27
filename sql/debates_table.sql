@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS prediction_markets.debates (
   debate_id           STRING    NOT NULL,
   alert_id            STRING    NOT NULL,
   source              STRING    NOT NULL,
+  series_ticker       STRING,
   market_id           STRING    NOT NULL,
   title               STRING,
   started_at          TIMESTAMP NOT NULL,

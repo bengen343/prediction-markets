@@ -48,6 +48,7 @@ def handle_pubsub_push() -> tuple[str, int]:
 
     alert_id = data.get("alert_id")
     source = data.get("source")
+    series_ticker = data.get("series_ticker")
     market_id = data.get("market_id")
     title = data.get("title")
     thread_id = data.get("thread_id")
@@ -65,21 +66,28 @@ def handle_pubsub_push() -> tuple[str, int]:
 
     # Cache check: re-serve recent consensus rather than re-debating.
     try:
-        cached = find_cached_consensus(bq, project_id, dataset, source, market_id, hours=3)
+        cached = find_cached_consensus(
+            bq, project_id, dataset, source, series_ticker, market_id, hours=3,
+        )
     except Exception:
-        log.exception("debater.cache_lookup_failed", source=source, market_id=market_id)
+        log.exception(
+            "debater.cache_lookup_failed",
+            source=source, series_ticker=series_ticker, market_id=market_id,
+        )
         cached = None
 
     if cached:
         log.info(
             "debater.cache_hit",
-            source=source, market_id=market_id, source_debate_id=cached["debate_id"],
+            source=source, series_ticker=series_ticker, market_id=market_id,
+            source_debate_id=cached["debate_id"],
+            source_market_id=cached.get("source_market_id"),
         )
         _post_and_record_cached(
             bq=bq, project_id=project_id, dataset=dataset,
             webhook_url=webhook_url, thread_id=thread_id,
-            alert_id=alert_id, source=source, market_id=market_id, title=title,
-            cached=cached,
+            alert_id=alert_id, source=source, series_ticker=series_ticker,
+            market_id=market_id, title=title, cached=cached,
         )
         return ("", 204)
 
@@ -105,6 +113,7 @@ def handle_pubsub_push() -> tuple[str, int]:
             "debate_id": output.debate_id,
             "alert_id": alert_id,
             "source": source,
+            "series_ticker": series_ticker,
             "market_id": market_id,
             "title": title,
             "started_at": started_at,
@@ -137,7 +146,7 @@ def handle_pubsub_push() -> tuple[str, int]:
 def _post_and_record_cached(
     *,
     bq, project_id, dataset, webhook_url, thread_id,
-    alert_id, source, market_id, title, cached,
+    alert_id, source, series_ticker, market_id, title, cached,
 ) -> None:
     finished_str = ""
     finished_at = cached.get("finished_at")
@@ -147,11 +156,20 @@ def _post_and_record_cached(
         except Exception:
             finished_str = str(finished_at)
 
+    # Surface the original market when a series-cached verdict is being reused
+    # for a *different* market in the same series — readers should know which
+    # specific market the verdict was actually debated against.
+    cached_from_label = finished_str or "earlier"
+    source_title = cached.get("source_title")
+    source_market_id = cached.get("source_market_id")
+    if source_market_id and source_market_id != market_id and source_title:
+        cached_from_label = f"{cached_from_label}; originally debated for: _{source_title}_"
+
     if thread_id:
         try:
             post_verdict(
                 webhook_url, thread_id, cached.get("verdict"),
-                outcome="consensus", cached_from=finished_str or "earlier",
+                outcome="consensus", cached_from=cached_from_label,
             )
         except Exception:
             log.exception("debater.cached_verdict_post_failed")
@@ -162,6 +180,7 @@ def _post_and_record_cached(
             "debate_id": uuid.uuid4().hex,
             "alert_id": alert_id,
             "source": source,
+            "series_ticker": series_ticker,
             "market_id": market_id,
             "title": title,
             "started_at": started_at,
