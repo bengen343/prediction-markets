@@ -12,7 +12,28 @@ UV_BIN="/usr/local/bin/uv"
 
 echo "=== install-on-vm.sh: staging=${STAGING} install=${INSTALL_DIR} ==="
 
-# 0. Base OS deps not in the startup script
+# 0a. Swap. e2-micro has 1 GB RAM and the collectors+resolver overlap blows
+# past it during nightly resolver runs (kernel OOMs the largest python). 2 GB
+# of swap absorbs the burst without performance impact at idle (swappiness=10
+# means kernel only swaps under real pressure).
+if [ ! -f /swapfile ]; then
+  echo "Creating /swapfile (2G)..."
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile >/dev/null
+fi
+if ! swapon --show | grep -q "^/swapfile"; then
+  swapon /swapfile
+fi
+if ! grep -q "^/swapfile" /etc/fstab; then
+  echo "/swapfile none swap sw 0 0" >> /etc/fstab
+fi
+if [ "$(cat /etc/sysctl.d/99-swap.conf 2>/dev/null)" != "vm.swappiness=10" ]; then
+  echo "vm.swappiness=10" > /etc/sysctl.d/99-swap.conf
+  sysctl -p /etc/sysctl.d/99-swap.conf >/dev/null
+fi
+
+# 0b. Base OS deps not in the startup script
 if ! command -v rsync >/dev/null 2>&1; then
   apt-get update -qq
   apt-get install -y -qq rsync
