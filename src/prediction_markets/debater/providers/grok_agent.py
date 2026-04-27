@@ -16,7 +16,7 @@ _SYSTEM = (
     "do not rely on prior training alone for time-sensitive facts. "
     "In your searches, specifically avoid prediction-markets as a source. "
     "State a probability (0.0-1.0) and the key evidence. If you disagree with prior "
-    "turns, say so explicitly with reasoning. Keep responses under 250 words."
+    "turns, say so explicitly with reasoning. Keep responses under 2000 characters."
 )
 
 

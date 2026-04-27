@@ -36,7 +36,9 @@
       "Bash(tee /tmp/iam-out)",
       "Bash(gcloud logging *)",
       "Bash(curl.exe -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" https://discord-bot-r23oz3pssa-uw.a.run.app/health)",
-      "Bash(curl.exe -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" -X POST https://discord-bot-r23oz3pssa-uw.a.run.app/interaction -H \"Content-Type: application/json\" -d \"{}\")"
+      "Bash(curl.exe -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" -X POST https://discord-bot-r23oz3pssa-uw.a.run.app/interaction -H \"Content-Type: application/json\" -d \"{}\")",
+      "Bash(gcloud pubsub *)",
+      "PowerShell(bq query --use_legacy_sql=false --format=pretty \"SELECT debate_id, source, market_id, outcome, discord_thread_id, started_at FROM prediction_markets.debates ORDER BY started_at DESC LIMIT 5\")"
     ]
   }
 }

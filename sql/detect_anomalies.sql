@@ -100,6 +100,7 @@ candidates as (
     -- filter candidates to only those three standard devitions outside the mean
     where
       rt.notional > 1000
+      and rt.price < 0.90
       and abs((rt.size - rs.average_size) / nullif(rs.stddev_size, 0)) > 3
       and abs((rt.notional - rs.average_notional) / nullif(rs.stddev_notional, 0)) > 3
 ),
