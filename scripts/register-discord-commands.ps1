@@ -45,27 +45,44 @@ $endpoint = if ($GuildId) {
 $command = @{
   name        = "debate"
   description = "Run an LLM debate. Defaults to the most recent alert in the thread."
-  type        = 1  # CHAT_INPUT
+  type        = 1
   options     = @(
     @{
       name        = "question"
       description = "Custom question to debate. Omit to use the most recent alert in the thread."
-      type        = 3  # STRING
+      type        = 3
       required    = $false
-      max_length  = 500
     }
   )
-} | ConvertTo-Json -Depth 6
+} | ConvertTo-Json -Depth 6 -Compress
 
 Write-Host "Registering /debate at $endpoint..."
+Write-Host "Payload: $command"
 
-# PowerShell 5.1 Invoke-RestMethod handles content-type quirks fine.
-$headers = @{
-  "Authorization" = "Bot $BotToken"
-  "Content-Type"  = "application/json; charset=utf-8"
+# Trim whitespace defensively — secrets pulled via PowerShell pipes sometimes
+# carry a trailing newline that the Authorization header rejects silently.
+$BotToken = $BotToken.Trim()
+
+# PowerShell 5.1: -ContentType + string body is the most reliable form.
+# Bytes-via-Body or Content-Type-in-Headers both have edge-case bugs in 5.1.
+try {
+  $response = Invoke-RestMethod `
+    -Method Post `
+    -Uri $endpoint `
+    -Headers @{ "Authorization" = "Bot $BotToken" } `
+    -ContentType "application/json" `
+    -Body $command
+  Write-Host "Registered:" -ForegroundColor Green
+  $response | ConvertTo-Json -Depth 6
+} catch {
+  Write-Host "Registration failed." -ForegroundColor Red
+  if ($_.Exception.Response) {
+    $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+    $body = $reader.ReadToEnd()
+    Write-Host "HTTP $([int]$_.Exception.Response.StatusCode) $($_.Exception.Response.StatusCode):"
+    Write-Host $body
+  } else {
+    Write-Host $_.Exception.Message
+  }
+  throw
 }
-
-# POST with the same name does an upsert in Discord's API — re-runnable.
-$response = Invoke-RestMethod -Method Post -Uri $endpoint -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($command))
-Write-Host "Registered:" -ForegroundColor Green
-$response | ConvertTo-Json -Depth 6

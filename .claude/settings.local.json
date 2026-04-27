@@ -27,7 +27,16 @@
       "PowerShell(gcloud storage cat gs://prediction-markets-51920-config/debates/bf17ec5c53ec47078b8bffeffd81ae0b/transcript.jsonl)",
       "WebFetch(domain:docs.x.ai)",
       "PowerShell(bq show --schema --format=prettyjson prediction-markets-51920:prediction_markets.alerts 2>&1)",
-      "Bash(gcloud compute *)"
+      "Bash(gcloud compute *)",
+      "Bash(gcloud run *)",
+      "Read(//tmp/**)",
+      "Bash(gcloud org-policies *)",
+      "Bash(gcloud services *)",
+      "Bash(gcloud organizations *)",
+      "Bash(tee /tmp/iam-out)",
+      "Bash(gcloud logging *)",
+      "Bash(curl.exe -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" https://discord-bot-r23oz3pssa-uw.a.run.app/health)",
+      "Bash(curl.exe -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" -X POST https://discord-bot-r23oz3pssa-uw.a.run.app/interaction -H \"Content-Type: application/json\" -d \"{}\")"
     ]
   }
 }
