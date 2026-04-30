@@ -10,9 +10,6 @@ from ..shared.secrets import get_project_id, get_secret
 from .discord import post_message
 
 
-# Discord user(s) to ping on each alert. Override via env var if needed.
-_DISCORD_MENTION = os.environ.get("DISCORD_MENTION", "<@746817328242491532>")
-
 # Topic name is conventional; project ID is discovered from the metadata server.
 # Topic itself is created by scripts/provision-gcp-debater.ps1, not the alerting
 # provisioner. If debater.enabled is false this code path never runs and the
@@ -24,7 +21,7 @@ def _format_message(row) -> str:
     trade_ts = row.trade_ts.isoformat() if hasattr(row.trade_ts, "isoformat") else row.trade_ts
     title_line = f"_{row.title}_\n" if row.title else ""
     return (
-        f"{_DISCORD_MENTION} Unusual trade on {row.market_id} ({row.source})\n"
+        f"Unusual trade on {row.market_id} ({row.source})\n"
         f"**{title_line}**"
         f"Side: {row.side or '?'}  Size: {row.size}  Price: ${row.price:.3f}  Notional: ${row.notional:.2f}\n"
         f"Trigger: {row.reason}\n"
