@@ -44,17 +44,29 @@ Invoke-Checked {
     --command "rm -rf $Staging; mkdir -p $Staging"
 } "prepare staging"
 
-Write-Host "--- Copying code ---" -ForegroundColor Yellow
-$srcDir = Join-Path $RepoRoot "src"
-$pyproject = Join-Path $RepoRoot "pyproject.toml"
-$systemdDir = Join-Path $RepoRoot "systemd"
-$installScript = Join-Path $PSScriptRoot "install-on-vm.sh"
-
+Write-Host "--- Building payload ---" -ForegroundColor Yellow
+$payload = Join-Path $env:TEMP "collector-payload-$PID.tgz"
 Invoke-Checked {
-  gcloud compute scp --recurse --zone $Zone --project $ProjectId `
-    $srcDir $pyproject $systemdDir $installScript `
-    "${VmName}:${Staging}/"
-} "copy files"
+  & tar -czf $payload -C $RepoRoot src pyproject.toml systemd -C $PSScriptRoot install-on-vm.sh
+} "build payload"
+
+Write-Host "--- Uploading payload to VM ---" -ForegroundColor Yellow
+# Stream via `gcloud compute ssh` stdin instead of `gcloud compute scp`: gcloud's Windows scp binds to whichever pscp/scp is on PATH, which has been brittle across machines.
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = "gcloud"
+$psi.Arguments = "compute ssh `"$VmName`" --zone `"$Zone`" --project `"$ProjectId`" --command `"tar -xzf - -C $Staging`""
+$psi.UseShellExecute = $false
+$psi.RedirectStandardInput = $true
+try {
+  $proc = [System.Diagnostics.Process]::Start($psi)
+  $bytes = [System.IO.File]::ReadAllBytes($payload)
+  $proc.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+  $proc.StandardInput.Close()
+  $proc.WaitForExit()
+  if ($proc.ExitCode -ne 0) { throw "Failed: upload payload (exit $($proc.ExitCode))" }
+} finally {
+  Remove-Item $payload -ErrorAction SilentlyContinue
+}
 
 Write-Host "--- Running install on VM ---" -ForegroundColor Yellow
 Invoke-Checked {

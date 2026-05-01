@@ -7,10 +7,15 @@
 #
 # Schema:
 #   kalshi:
-#     categories: list of Kalshi category names; resolver discovers all open
-#                 markets in any series matching that category.
-#     tickers:    explicit ticker overrides; always followed regardless of
-#                 category, even if not part of any tracked series.
+#     categories: list of Kalshi category names. The resolver upserts ALL
+#                 active and recently-closed markets across Kalshi (those
+#                 with close_ts within the last 48h or in the future) into
+#                 BigQuery regardless of category, but the trade-collector
+#                 only subscribes to markets whose series category appears
+#                 in this list. Settled markets are left untouched in BQ as
+#                 a historic record.
+#     tickers:    explicit ticker overrides; always subscribed to regardless
+#                 of category.
 #   polymarket:
 #     tag_slug:   list of tag slugs (Polymarket has no real categories - the
 #                 'category' field is dead/legacy and tags are the only topic
