@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import yaml
@@ -334,40 +334,33 @@ def main() -> None:
     manual_tickers: list[str] = list(kalshi_cfg.get("tickers") or [])
     log.info("resolver.config", categories=categories, manual_tickers=len(manual_tickers))
 
-    configured_categories: set[str] = set(categories)
-
-    # Walk every Kalshi series (no category filter) so we have a complete
-    # category map for downstream market enrichment. Configured categories
-    # are now a subscription filter only — discovery is global.
     series_by_category: list[tuple[str, str]] = []
     series_rows: list[dict] = []
-    for series in get_paginated(
-        private_key, access_key_id,
-        "/trade-api/v2/series",
-        items_key="series",
-        params={
-            "limit": 200,
-            "include_volume": "true",
-            "include_product_metadata": "true",
-        },
-    ):
-        # Fall back to "uncategorized" so the markets.category column is
-        # always populated (Kalshi normally returns category, but defend
-        # against missing values rather than dropping the row).
-        cat = series.get("category") or "uncategorized"
-        series_rows.append(_build_series_row(series, cat))
-        try:
-            vol = float(series.get("volume_fp", "0") or "0")
-        except (TypeError, ValueError):
-            vol = 0.0
-        if vol <= 0:
-            continue  # skip series with no lifetime trades - saves a /markets call
-        series_by_category.append((cat, series["ticker"]))
-    log.info(
-        "resolver.series_discovered",
-        total=len(series_rows),
-        with_volume=len(series_by_category),
-    )
+    for category in categories:
+        count = 0
+        for series in get_paginated(
+            private_key, access_key_id,
+            "/trade-api/v2/series",
+            items_key="series",
+            params={
+                "category": category,
+                "limit": 200,
+                "include_volume": "true",
+                "include_product_metadata": "true",
+            },
+        ):
+            # Capture every series for the kalshi_series table, regardless of
+            # volume — the table is the canonical view of what's available.
+            series_rows.append(_build_series_row(series, category))
+            try:
+                vol = float(series.get("volume_fp", "0") or "0")
+            except (TypeError, ValueError):
+                vol = 0.0
+            if vol <= 0:
+                continue  # skip series with no lifetime trades - saves a /markets call
+            series_by_category.append((category, series["ticker"]))
+            count += 1
+        log.info("resolver.series_discovered", category=category, count=count)
 
     if series_rows:
         _load_series(bq_client, project_id, dataset, series_rows, log)
@@ -381,12 +374,6 @@ def main() -> None:
         )
         series_by_category = series_by_category[:series_limit]
 
-    # Restrict /markets to active and recently-closed contracts. Markets that
-    # closed >48h ago are intentionally left untouched in BQ so the table
-    # serves as a historic record; the MERGE additionally only updates rows
-    # where settlement_ts IS NULL, so settled rows are also frozen.
-    min_close_ts = int((datetime.now(UTC) - timedelta(hours=48)).timestamp())
-
     rows: list[dict] = []
     for category, series_ticker in series_by_category:
         count = 0
@@ -394,11 +381,7 @@ def main() -> None:
             private_key, access_key_id,
             "/trade-api/v2/markets",
             items_key="markets",
-            params={
-                "series_ticker": series_ticker,
-                "limit": 1000,
-                "min_close_ts": min_close_ts,
-            },
+            params={"series_ticker": series_ticker, "limit": 1000},
         ):
             rows.append(_build_row(market, series_ticker, category))
             count += 1
@@ -410,14 +393,7 @@ def main() -> None:
         _upsert_markets(bq_client, project_id, dataset, rows, log)
         log.info("resolver.markets_upserted", count=len(rows))
 
-    # BQ holds every active/recently-closed market, but we only subscribe to
-    # trades for markets in configured categories (plus manual overrides).
-    open_tickers = {
-        r["ticker"]
-        for r in rows
-        if r.get("status") == "active"
-        and r.get("category") in configured_categories
-    }
+    open_tickers = {r["ticker"] for r in rows if r.get("status") == "active"}
     open_tickers.update(manual_tickers)
     _write_subscriptions(bucket, sorted(open_tickers))
     log.info("resolver.subscriptions_written", count=len(open_tickers))

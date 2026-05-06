@@ -38,7 +38,20 @@
       "Bash(curl.exe -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" https://discord-bot-r23oz3pssa-uw.a.run.app/health)",
       "Bash(curl.exe -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" -X POST https://discord-bot-r23oz3pssa-uw.a.run.app/interaction -H \"Content-Type: application/json\" -d \"{}\")",
       "Bash(gcloud pubsub *)",
-      "PowerShell(bq query --use_legacy_sql=false --format=pretty \"SELECT debate_id, source, market_id, outcome, discord_thread_id, started_at FROM prediction_markets.debates ORDER BY started_at DESC LIMIT 5\")"
+      "PowerShell(bq query --use_legacy_sql=false --format=pretty \"SELECT debate_id, source, market_id, outcome, discord_thread_id, started_at FROM prediction_markets.debates ORDER BY started_at DESC LIMIT 5\")",
+      "PowerShell(gcloud config get-value project)",
+      "PowerShell(gcloud compute ssh collector-vm --zone us-west1-a --project prediction-markets-51920 --command \"sed -n '330,425p' /opt/collector/src/prediction_markets/kalshi/resolver.py\")",
+      "PowerShell(gcloud compute ssh collector-vm --zone us-west1-a --project prediction-markets-51920 --command \"journalctl -u kalshi-resolver --since '7 days ago' --no-pager | tail -200\")",
+      "PowerShell(gcloud compute ssh collector-vm --zone us-west1-a --project prediction-markets-51920 --command \"sudo journalctl -u kalshi-resolver --since '36 hours ago' --no-pager | tail -50\")",
+      "PowerShell(gcloud compute ssh collector-vm --zone us-west1-a --project prediction-markets-51920 --command \"stat -c '%y' /opt/collector/src/prediction_markets/kalshi/resolver.py; md5sum /opt/collector/src/prediction_markets/kalshi/resolver.py\")",
+      "PowerShell($h = Get-FileHash -LiteralPath \"$HOME\\\\Documents\\\\Repos\\\\prediction-markets\\\\src\\\\prediction_markets\\\\kalshi\\\\resolver.py\" -Algorithm MD5; $h.Hash.ToLower\\(\\))",
+      "PowerShell(gcloud config list account --format='value\\(core.account\\)')",
+      "PowerShell(gcloud auth list --format='value\\(account\\)')",
+      "PowerShell(gcloud compute os-login describe-profile --format='value\\(posixAccounts.username\\)' 2>&1)",
+      "PowerShell(gcloud compute ssh collector-vm --zone us-west1-a --project prediction-markets-51920 --command \"ls /home\")",
+      "PowerShell(gcloud compute ssh collector-vm --zone us-west1-a --project prediction-markets-51920 --command \"id; sudo -n true 2>&1; ls -la /home\")",
+      "PowerShell(Get-Command gcloud, gcloud.cmd, gcloud.ps1 -ErrorAction SilentlyContinue)",
+      "PowerShell(gcloud compute ssh collector-vm --zone us-west1-a --project prediction-markets-51920 --command \"ls -la /tmp/collector-staging/src/prediction_markets/kalshi/resolver.py /tmp/collector-staging 2>&1 | head -20\")"
     ]
   }
 }

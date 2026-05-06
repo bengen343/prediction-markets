@@ -39,9 +39,12 @@ Write-Host ""
 Write-Host "=== Deploy to $VmName ($ProjectId) ===" -ForegroundColor Cyan
 
 Write-Host "--- Preparing staging directory on VM ---" -ForegroundColor Yellow
+# sudo rm because previous deploys from a different machine may have left files
+# owned by a different OS Login uid (e.g. uid 1000 from a 'ben' user vs the
+# current 'ben_amaroqanalytics_com' uid) that this user can't delete otherwise.
 Invoke-Checked {
   gcloud compute ssh $VmName --zone $Zone --project $ProjectId `
-    --command "rm -rf $Staging; mkdir -p $Staging"
+    --command "sudo rm -rf $Staging && mkdir -p $Staging"
 } "prepare staging"
 
 Write-Host "--- Building payload ---" -ForegroundColor Yellow
@@ -51,19 +54,17 @@ Invoke-Checked {
 } "build payload"
 
 Write-Host "--- Uploading payload to VM ---" -ForegroundColor Yellow
-# Stream via `gcloud compute ssh` stdin instead of `gcloud compute scp`: gcloud's Windows scp binds to whichever pscp/scp is on PATH, which has been brittle across machines.
-$psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName = "gcloud"
-$psi.Arguments = "compute ssh `"$VmName`" --zone `"$Zone`" --project `"$ProjectId`" --command `"tar -xzf - -C $Staging`""
-$psi.UseShellExecute = $false
-$psi.RedirectStandardInput = $true
+# Use `gcloud compute scp` to land the tarball, then ssh to extract.
+# We previously tried streaming the tarball over `gcloud compute ssh` stdin via Process.Start, but on Windows the only way to launch `gcloud.cmd` from .NET is through cmd.exe, and cmd.exe corrupts binary stdin (text-mode handle → \r\n / \x1A translation breaks the gzip stream).
+$remotePayload = "/tmp/collector-payload.tgz"
 try {
-  $proc = [System.Diagnostics.Process]::Start($psi)
-  $bytes = [System.IO.File]::ReadAllBytes($payload)
-  $proc.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
-  $proc.StandardInput.Close()
-  $proc.WaitForExit()
-  if ($proc.ExitCode -ne 0) { throw "Failed: upload payload (exit $($proc.ExitCode))" }
+  Invoke-Checked {
+    gcloud compute scp --zone $Zone --project $ProjectId $payload "${VmName}:${remotePayload}"
+  } "upload payload"
+  Invoke-Checked {
+    gcloud compute ssh $VmName --zone $Zone --project $ProjectId `
+      --command "tar -xzf $remotePayload -C $Staging && rm -f $remotePayload"
+  } "extract payload"
 } finally {
   Remove-Item $payload -ErrorAction SilentlyContinue
 }
