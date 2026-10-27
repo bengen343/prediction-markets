@@ -1,8 +1,24 @@
 [Unit]
-Description=Run kalshi-resolver daily at 1am Mountain time
+Description=Run kalshi-resolver daily, shortly before the daily markets open
 
 [Timer]
-OnCalendar=*-*-* 01:00:00 America/Denver
+# 07:30 America/New_York, not UTC and not Mountain, because the Kalshi daily
+# series are scheduled in Eastern and shift with US DST. Measured over the
+# last 60 contract days of KXAAAGASD (AAA gasoline):
+#
+#   created  06:00:26 - 06:09:23 ET
+#   opens    08:00:00 ET  (exactly, 60 of 60 days)
+#   closes   23:59 ET
+#
+# so the whole contract lives inside one day and the previous 01:00 Mountain
+# run (03:00 ET) saw yesterday's contract already settled and today's not yet
+# created - it could never subscribe to a daily market at all. Anywhere in
+# 06:10-08:00 ET works; 07:30 leaves ~30 min of headroom for a slow run
+# (a full resolve is ~700 REST calls) while still landing before the open.
+#
+# Markets are created ~2h before they open, so the resolver finds them with
+# status "initialized" rather than "active" - see is_subscribable().
+OnCalendar=*-*-* 07:30:00 America/New_York
 Unit=kalshi-resolver.service
 Persistent=true
 

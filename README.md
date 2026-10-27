@@ -105,10 +105,15 @@ gcloud storage cp markets.yaml gs://prediction-markets-51920-config/markets.yaml
   `polymarket-collector` (32 sharded WebSockets - the Polymarket WS
   server has an undocumented subscribe-payload size cap). Both write
   trades into the shared `trades` BQ table via a batching `BqWriter`.
-- **Resolvers (daily):** `kalshi-resolver.timer` at 01:00 America/Denver,
-  `polymarket-resolver.timer` at 03:00. Discover open markets in tracked
-  Kalshi categories / Polymarket tags and write the subscription list to
-  GCS, which the collectors read.
+- **Resolvers (daily):** `kalshi-resolver.timer` at 07:30 America/New_York,
+  `polymarket-resolver.timer` at 03:00 America/Denver. Discover open markets
+  in tracked Kalshi categories / Polymarket tags and write the subscription
+  list to GCS, which the collectors read. The Kalshi run is pinned to Eastern
+  and sits just before the 08:00 ET open of the daily series: those contracts
+  are created ~2h before they open and settle the same night, so a run at any
+  other hour finds them either nonexistent or already closed. They are picked
+  up in `initialized` state, which is why the subscription filter tests
+  `is_subscribable()` rather than `status == "active"`.
 - **Anomaly detection:** scheduled query `detect_anomalies` in BQ
   Console, every 15 min. Inserts flagged trades into the `alerts` table.
 - **Notifier (every 5 min):** `notifier.timer` polls `alerts` for

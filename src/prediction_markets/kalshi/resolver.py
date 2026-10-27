@@ -127,6 +127,41 @@ def _parse_timestamp(val: Any) -> str | None:
     return None
 
 
+# Statuses a contract can never trade from again. Everything else is worth a
+# subscription - notably `initialized`, which is what Kalshi reports between
+# creating a contract and opening it. The daily series are created about two
+# hours before they open, so the resolver only ever sees them in that state.
+TERMINAL_STATUSES: frozenset[str] = frozenset({
+    "finalized", "settled", "closed", "inactive", "determined",
+})
+
+
+def _parse_dt(val: Any) -> datetime | None:
+    """Parse a Kalshi timestamp into an aware UTC datetime, or None."""
+    iso = _parse_timestamp(val)
+    if iso is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def is_subscribable(market: dict) -> bool:
+    """True when a market can still trade: a non-terminal status and a close
+    time in the future.
+
+    This replaces a bare `status == "active"` check, which dropped every
+    contract Kalshi had created but not yet opened - which is every daily
+    contract, at the only time of day the resolver looks.
+    """
+    if (market.get("status") or "").strip().lower() in TERMINAL_STATUSES:
+        return False
+    close = _parse_dt(market.get("close_time"))
+    return close is not None and close > datetime.now(UTC)
+
+
 def _parse_bool(val: Any) -> bool | None:
     """Defensive bool coercion - non-bool values become None rather than
     being silently truthified (e.g., '' would become False under bool('')).
@@ -393,7 +428,7 @@ def main() -> None:
         _upsert_markets(bq_client, project_id, dataset, rows, log)
         log.info("resolver.markets_upserted", count=len(rows))
 
-    open_tickers = {r["ticker"] for r in rows if r.get("status") == "active"}
+    open_tickers = {r["ticker"] for r in rows if is_subscribable(r)}
     open_tickers.update(manual_tickers)
     _write_subscriptions(bucket, sorted(open_tickers))
     log.info("resolver.subscriptions_written", count=len(open_tickers))

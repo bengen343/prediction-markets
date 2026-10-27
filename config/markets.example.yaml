@@ -27,11 +27,13 @@
 kalshi:
   categories:
     - Politics
+    - Economics
   tickers: []
 
 polymarket:
   tag_slug:
     - politics
+    - economics
   tickers: []
 
 # Optional. When enabled: true, the LLM debater pipeline is wired up.
@@ -43,5 +45,5 @@ polymarket:
 # Leave the section absent or enabled: false to run alert-only with no LLM
 # dependencies.
 debater:
-  enabled: false
-  auto_publish: true
+  enabled: true
+  auto_publish: false
